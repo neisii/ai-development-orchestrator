@@ -22,7 +22,8 @@ Human-in-the-loop orchestration system for coordinating multiple AI agents acros
 
 - [요구사항 (requirements.md)](docs/requirements.md) — 프로젝트 목적, 운영 모델, Human/Agent 역할, 통신·질문/답변·Human Intervention·Scribe·Decision Record 규칙, 핵심 원칙
 - [핵심 개념 (glossary.md)](docs/glossary.md)
+- [MVP 범위 (mvp-scope.md)](docs/mvp-scope.md) — 1단계에서 검증할 최소 범위와 완료 기준
 
 ## 현재 상태
 
-아이디어 및 요구사항 정리 단계. 구현 기술 스택과 상세 설계는 아직 확정되지 않았으며, 요구사항 충족·성능·운영 편의성 등을 기준으로 이후 단계에서 결정합니다. (Windows/macOS 우선 지원, Linux는 추후 고려)
+요구사항 정리 및 MVP 범위 정의 단계. MVP는 Scribe Agent/Decision Record를 제외하고 Orchestrator 중심의 Agent 실행·통신·Q&A·Intervention 루프를 CLI 환경에서 먼저 검증하는 것을 목표로 합니다. 구현 기술 스택과 상세 설계는 아직 확정되지 않았으며, 요구사항 충족·성능·운영 편의성 등을 기준으로 이후 단계에서 결정합니다. (Windows/macOS 우선 지원, Linux는 추후 고려)
