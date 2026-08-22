@@ -147,7 +147,9 @@ Agent 상태(`ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등)는 오케스트�
 
 ## 9. 프로세스 격리
 
-Agent마다 별도의 `CLAUDE_CONFIG_DIR`을 지정해 세션 데이터와 설정이 서로 섞이지 않게 한다. 프로젝트 디렉터리(cwd)는 각 프로젝트의 실제 경로를 그대로 사용한다.
+프로젝트 디렉터리(cwd)는 각 프로젝트의 실제 경로를 그대로 사용한다.
+
+> **수정 (실측 반영)**: 애초에 "Agent마다 별도의 `CLAUDE_CONFIG_DIR`을 지정"하는 안을 세웠으나, 새로 만든 빈 디렉터리를 `CLAUDE_CONFIG_DIR`로 지정하면 인증 정보가 없어 `"Not logged in · Please run /login"`으로 즉시 실패하는 것이 실측으로 확인됐다. 세션/트랜스크립트 격리는 이미 `session_id` + cwd 조합으로 이루어지므로([architecture.md §6 조사 결과](#6-전체-시스템-개념-구조)와 무관하게 별도 확인됨), MVP에서는 `CLAUDE_CONFIG_DIR`을 지정하지 않고 기본값(보통 `~/.claude`, 인증 정보 포함)을 그대로 상속한다. 여러 Agent가 정말 서로 다른 인증·설정 프로필을 써야 하는 시점이 오면, 그때 인증 정보까지 미리 준비된 디렉터리를 만들어 지정한다.
 
 ## 10. Claude Code 버전 요구사항
 
@@ -170,7 +172,17 @@ Agent마다 별도의 `CLAUDE_CONFIG_DIR`을 지정해 세션 데이터와 설�
 - Answer 상태 enum, Agent 상태 enum의 정확한 스키마 — 데이터 모델 설계 단계에서 확정
 - ~~`ask_agent` MCP 도구 호출에 대한 응답을 오케스트레이터가 얼마나 오래 보류할 수 있는지(타임아웃 존재 여부)~~ → §4.1 실측 검증에서 해소. 최소 5분까지는 타임아웃 없음. 그 이상 장시간 보류는 별도 안전장치 필요
 - 위 기능들의 정확한 도입 버전 (공식 문서에 명시 없음, 필요시 Anthropic 문의)
+- 일부 환경에서는 Bash 도구 호출이 즉시 실행되지 않고 자체 백그라운드 Task로 위임되어(`task_started`/`task_notification` 이벤트) 예상보다 훨씬 빨리 끝나는 것이 관찰됐다. 이게 특정 환경/플러그인 설정에 국한된 동작인지, 일반적인 Claude Code 동작인지 확인되지 않았다. 오케스트레이터가 "도구 실행 중 여부"를 판단할 때 이 가능성을 감안해야 할 수 있다.
+
+## 12. 구현 현황
+
+`src/`에 MVP 구현이 진행 중이다.
+
+- `src/types.ts` — [data-model.md](data-model.md) §2 기준 `AgentLifecycleState`/`AgentConfig` 타입
+- `src/process-manager.ts` — Agent 프로세스 spawn/pause/resume/stop 구현. 다음이 실제 실행으로 검증됨:
+  - `start()` → 세션 시작 → 생성(텍스트 응답) 도중 `pause()`(`SIGTERM`) → `PAUSED` → `resume(prompt)` → 이어서 진행 → `COMPLETED`까지 전체 사이클 정상 동작
+  - `claudeConfigDir`을 지정하지 않으면(§9) 정상 동작, 새 빈 디렉터리를 지정하면 인증 실패 재현됨
 
 ## 다음 단계
 
-미해결 사항 확인 후, 데이터 모델(Event Log / Question / Answer / Agent 상태 스키마) 설계로 진행한다.
+Hook 수신 서버와 MCP 서버(`ask_agent`/`answer_question`) 구현으로 진행한다.
