@@ -1,0 +1,189 @@
+# 데이터 모델 설계
+
+[architecture.md](architecture.md)에서 정의한 구성 요소(Process Manager, Hook 수신 서버, MCP 서버, Event Log Store)가 실제로 다루는 데이터의 스키마를 정의한다. [mvp-scope.md](mvp-scope.md) 범위에 따라 Scribe Agent / Decision Record는 포함하지 않는다.
+
+## 1. 설계 원칙: 원시 데이터와 파생 표시를 분리한다
+
+이 문서 전반에서 반복되는 패턴 하나를 먼저 명시한다.
+
+- 오케스트레이터가 **확실하게 아는 사실**(프로세스가 살아있는지, MCP 도구 응답을 보류 중인지, exit code가 몇인지)은 신뢰 가능한 **상태 값**으로 다룬다.
+- 반면 **도구 이름이나 명령어 내용으로부터 추측해야 하는 것**(지금 "분석" 중인지 "구현" 중인지, 이 Bash 명령이 테스트인지)은 오탐 가능성이 있는 **파생 라벨**로만 다루고, CLI 표시 이상의 용도로 쓰지 않는다.
+
+Agent 상태(§2)와 Event Log(§4) 모두 이 구분을 따른다.
+
+## 2. Agent
+
+### 2.1 엔티티
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | string | Agent 식별자 (예: `api-agent`) |
+| `projectPath` | string | 담당 프로젝트 디렉터리(cwd) |
+| `claudeConfigDir` | string | `CLAUDE_CONFIG_DIR` — Agent별 세션/설정 격리 |
+| `sessionId` | string \| null | 현재 Claude Code 세션 ID. 아직 시작 전이면 `null` |
+| `pid` | number \| null | 현재 자식 프로세스 PID. 실행 중이 아니면 `null` |
+| `lifecycleState` | `AgentLifecycleState` | §2.2 |
+| `activityLabel` | `AgentActivityLabel` \| null | §2.3, 참고용 |
+| `pendingQuestionId` | string \| null | 이 Agent가 낸 질문 중 아직 안 끝난 게 있으면 참조 |
+| `updatedAt` | datetime | 마지막 상태 변경 시각 |
+
+### 2.2 Lifecycle State (신뢰 가능, 오케스트레이터 동작을 결정)
+
+```mermaid
+stateDiagram-v2
+    [*] --> STARTING: spawn
+    STARTING --> RUNNING: 세션 시작 확인
+    RUNNING --> WAITING_APPROVAL: ask_agent 호출 → Human Review 대기
+    WAITING_APPROVAL --> RUNNING: 질문 거절 (사유와 함께 계속 진행)
+    WAITING_APPROVAL --> WAITING_AGENT: 질문 승인 → 상대 Agent에게 전달됨
+    WAITING_AGENT --> RUNNING: 답변 도착 + Human 승인 → 전달됨
+    RUNNING --> PAUSED: Human Pause (SIGTERM)
+    PAUSED --> RUNNING: Human Resume (--resume + 프롬프트)
+    RUNNING --> COMPLETED: 정상 종료 (exit code 0)
+    RUNNING --> FAILED: 비정상 종료 (예기치 못한 exit code)
+    RUNNING --> STOPPED: Human Stop (SIGTERM, 재개 안 함)
+    PAUSED --> STOPPED: Human Stop
+    WAITING_APPROVAL --> STOPPED: Human Stop
+    WAITING_AGENT --> STOPPED: Human Stop
+```
+
+- **원본 §14 enum과의 차이**: `ANALYZING`/`PLANNING`/`IMPLEMENTING`/`TESTING`은 도구 호출 내용으로부터 추측해야 하는 값이라 신뢰도가 낮으므로 `RUNNING` 하나로 합치고, 세부 구분은 §2.3의 참고용 라벨로 뺐다. `WAITING_HUMAN`은 의미상 `WAITING_APPROVAL`과 겹쳐서(둘 다 "Human의 판단을 기다림") 하나로 합쳤다.
+- `PAUSED`/`STOPPED` 모두 내부적으로는 동일하게 `SIGTERM`을 보내는 동작이다([architecture.md §5](architecture.md#5-human-intervention-구현-12-대응)). 차이는 오케스트레이터가 이후 자동으로 `--resume`을 준비해두느냐(`PAUSED`) 아니냐(`STOPPED`)뿐이다.
+
+### 2.3 Activity Label (참고용, CLI 표시 전용)
+
+가장 최근 Event Log 항목의 `tool_name`을 아래처럼 매핑해 계산한다. 100% 정확하지 않을 수 있음을 CLI에 표시한다.
+
+| tool_name | Activity Label |
+|---|---|
+| `Read`, `Grep`, `Glob` | `ANALYZING` |
+| `Edit`, `Write`, `NotebookEdit` | `IMPLEMENTING` |
+| `Bash` (명령어에 `test`, `spec` 등 포함) | `TESTING` |
+| `Bash` (그 외) | `IMPLEMENTING` |
+| 그 외 / 정보 없음 | `null` |
+
+`PLANNING`은 도구 호출만으로는 구분할 근거가 없어 이번 버전에서는 산출하지 않는다.
+
+## 3. Question
+
+### 3.1 엔티티
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | string | |
+| `fromAgentId` | string | 질문한 Agent |
+| `toAgentId` | string | 질문 대상 Agent |
+| `text` | string | 질문 내용 |
+| `selfJustification` | string | Agent가 `ask_agent` 호출 시 함께 제출하는, 왜 이 질문이 필요한지에 대한 자체 근거(§8 Question Eligibility Check의 결과물) |
+| `status` | `QuestionStatus` | §3.2 |
+| `humanReviewer` | string \| null | 승인/거절한 Human (MVP는 단일 사용자라 고정값일 수 있음) |
+| `reviewReason` | string \| null | 거절 시 사유 |
+| `createdAt` / `reviewedAt` / `deliveredAt` | datetime | |
+
+### 3.2 상태 흐름 (§8~9 대응)
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING_HUMAN_REVIEW: ask_agent 호출
+    PENDING_HUMAN_REVIEW --> REJECTED: Human 거절
+    PENDING_HUMAN_REVIEW --> APPROVED: Human 승인
+    APPROVED --> DELIVERED: 대상 Agent에게 전달
+    DELIVERED --> ANSWERED: Answer 생성됨 (§4)
+    ANSWERED --> CLOSED: Answer가 질문자에게 전달 완료
+    REJECTED --> [*]
+    CLOSED --> [*]
+```
+
+`ask_agent` MCP 도구 호출 자체가 `PENDING_HUMAN_REVIEW` 진입점이다. 이 시점에 오케스트레이터는 도구 응답을 보류한다([architecture.md §4.1](architecture.md#41-실측-검증-v2138-macos)에서 확인했듯 최소 5분까지는 타임아웃 없이 보류 가능).
+
+**`REJECTED`가 전달되는 방식**: 별도의 전달 단계가 있는 게 아니라, 거절 자체가 곧 "보류 중이던 `ask_agent` 도구 호출을 `reviewReason`을 담은 결과로 응답해버리는 것"이다. 따라서 질문한 Agent는 자신이 호출한 도구의 반환값으로 거절 사유를 그 자리에서 즉시 받고, 같은 턴 안에서 바로 다음 행동(예: 질문 없이 현재 정보로 진행, 질문을 보완해서 재시도)을 판단하는 데 참고한다. `--resume`으로 새 턴을 열 필요가 없다 — 이 점에서 `APPROVED`/`DELIVERED` 이후의 흐름(대상 Agent의 다음 턴에 프롬프트로 주입, [architecture.md §4](architecture.md#4-승인-게이트-8-11-대응) 4번)과 성격이 다르다.
+
+## 4. Answer
+
+### 4.1 엔티티
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | string | |
+| `questionId` | string | 어떤 Question에 대한 답변인지 |
+| `fromAgentId` | string | 답변한 Agent (= Question의 `toAgentId`) |
+| `text` | string | 답변 내용 |
+| `contentStatus` | `AnswerContentStatus` | §4.2 — 답변 Agent가 스스로 판단한 답변의 인식론적 상태 |
+| `reviewStatus` | `AnswerReviewStatus` | §4.3 — Human 승인 워크플로우 상태 |
+| `humanReviewer` / `reviewReason` | | Question과 동일한 목적 |
+| `createdAt` / `reviewedAt` / `deliveredAt` | datetime | |
+
+두 상태를 분리한 이유는 §2와 같은 원칙이다: `contentStatus`는 Agent가 스스로 매기는 값(오케스트레이터가 검증할 수 없음)이고, `reviewStatus`는 오케스트레이터/Human이 통제하는 워크플로우 값이다.
+
+### 4.2 Content Status (§11 그대로 채택)
+
+```
+ANSWERABLE | PARTIALLY_ANSWERABLE | INSUFFICIENT_CONTEXT | OUT_OF_SCOPE | AMBIGUOUS | CONFLICTING_INFORMATION | UNKNOWN
+```
+
+`answer_question` MCP 도구의 필수 파라미터로 노출한다(Agent가 답변 텍스트와 함께 이 값을 반드시 선택하게 강제).
+
+### 4.3 Review Status (§10 대응)
+
+```mermaid
+stateDiagram-v2
+    [*] --> PENDING_HUMAN_REVIEW: answer_question 호출
+    PENDING_HUMAN_REVIEW --> APPROVED: Human 승인
+    PENDING_HUMAN_REVIEW --> REJECTED: Human 거절 (재답변 요청)
+    APPROVED --> DELIVERED: 질문자 Agent에게 전달
+    REJECTED --> [*]
+    DELIVERED --> [*]
+```
+
+`REJECTED`도 Question과 같은 방식으로 전달된다: 보류 중이던 `answer_question` 도구 호출을 `reviewReason`을 담아 응답한다. 답변한 Agent는 같은 턴 안에서 거절 사유를 즉시 받아 답변을 보완한 뒤 `answer_question`을 다시 호출할 수 있고, 이 두 번째 호출이 같은 `questionId`를 참조하는 새 Answer 레코드가 된다(재답변).
+
+## 5. Event Log
+
+### 5.1 엔티티
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | string | |
+| `timestamp` | datetime | |
+| `agentId` | string | |
+| `sessionId` | string | |
+| `type` | `EventType` | §5.2 |
+| `source` | `"hook" \| "mcp" \| "orchestrator"` | 어디서 발생했는지 |
+| `payload` | JSON | hook/MCP가 보낸 원시 데이터 (tool_name, tool_input, exit_code 등) |
+| `relatedQuestionId` / `relatedAnswerId` | string \| null | Question/Answer 관련 이벤트일 때만 |
+
+### 5.2 Event Type
+
+Hook/MCP에서 실제로 오는 원시 이벤트를 그대로 보존한다. "파일 읽기/수정" 같은 의미 분류(§13의 예시)는 CLI가 `payload.tool_name`으로부터 표시 단계에서 파생하며, Event Log 자체의 `type`은 다음처럼 훅/도구 이벤트 이름에 최대한 가깝게 유지한다.
+
+| type | source | 발생 시점 |
+|---|---|---|
+| `SESSION_START` | hook | Agent 세션 시작 |
+| `SESSION_END` | hook | Agent 프로세스 종료 (정상/SIGTERM 모두) |
+| `TOOL_PRE` | hook (`PreToolUse`) | 도구 호출 직전 |
+| `TOOL_POST` | hook (`PostToolUse`) | 도구 호출 완료 (성공/에러 모두, `payload.is_error`로 구분) |
+| `QUESTION_CREATED` | mcp | `ask_agent` 호출 |
+| `QUESTION_REVIEWED` | orchestrator | Human이 질문 승인/거절 |
+| `ANSWER_CREATED` | mcp | `answer_question` 호출 |
+| `ANSWER_REVIEWED` | orchestrator | Human이 답변 승인/거절 |
+| `INTERVENTION` | orchestrator | Pause/Resume/Stop/Direct Instruction 발생 (`payload.kind`로 세분화) |
+
+## 6. 전체 관계
+
+```mermaid
+erDiagram
+    AGENT ||--o{ EVENT_LOG : generates
+    AGENT ||--o{ QUESTION : "asks (fromAgentId)"
+    AGENT ||--o{ QUESTION : "receives (toAgentId)"
+    QUESTION ||--o{ ANSWER : "answered by"
+    QUESTION ||--o{ EVENT_LOG : "referenced by"
+    ANSWER ||--o{ EVENT_LOG : "referenced by"
+```
+
+## 7. 저장소 (권장)
+
+오케스트레이터가 유일한 writer이고 동시 접근 문제가 없으므로, MVP에서는 단일 SQLite 파일(예: `better-sqlite3`)을 권장한다. 스키마 변경이 잦은 초기 단계라 마이그레이션 도구 없이 시작하고, 필요해지면 추가한다. 이 결정은 낮은 리스크의 구현 세부사항이라 언제든 JSON Lines 등으로 바꿔도 무방하다.
+
+## 다음 단계
+
+이 스키마를 기준으로 Orchestrator의 실제 구현(Process Manager, Hook 수신 서버, MCP 서버, CLI)에 착수할 수 있다.
