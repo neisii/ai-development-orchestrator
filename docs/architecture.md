@@ -178,11 +178,34 @@ Agent 상태(`ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등)는 오케스트�
 
 `src/`에 MVP 구현이 진행 중이다.
 
-- `src/types.ts` — [data-model.md](data-model.md) §2 기준 `AgentLifecycleState`/`AgentConfig` 타입
+- `src/types.ts` — [data-model.md](data-model.md) §2~4 기준 `AgentLifecycleState`/`AgentConfig`/`Question`/`Answer` 타입
 - `src/process-manager.ts` — Agent 프로세스 spawn/pause/resume/stop 구현. 다음이 실제 실행으로 검증됨:
   - `start()` → 세션 시작 → 생성(텍스트 응답) 도중 `pause()`(`SIGTERM`) → `PAUSED` → `resume(prompt)` → 이어서 진행 → `COMPLETED`까지 전체 사이클 정상 동작
   - `claudeConfigDir`을 지정하지 않으면(§9) 정상 동작, 새 빈 디렉터리를 지정하면 인증 실패 재현됨
+- `src/db.ts` / `src/qa-store.ts` — Question/Answer 저장소. §설계와 달리 "오케스트레이터가 유일한 writer"가 아니라, Agent마다 뜨는 MCP 서버 프로세스 여러 개가 같은 SQLite 파일을 공유하는 구조로 구현했다(아래 참고).
+- `src/mcp-server.ts` — `ask_agent`/`answer_question` 도구를 제공하는 stdio MCP 서버. Human 결정 대기는 SQLite 폴링(1초 간격)으로 구현했다(§4.1에서 5분까지 무타임아웃이 확인된 걸 근거로 안전하다고 판단).
+- `src/admin-cli.ts` — Human이 대기 중인 질문/답변을 보고 승인/거절하는 최소 CLI. 향후 CLI 컴포넌트의 출발점.
+
+### 12.1 설계 변경: MCP 서버를 "여러 stdio 인스턴스 + 공유 SQLite"로 구현
+
+원래 다이어그램은 MCP 서버를 오케스트레이터 프로세스 하나에 속한 컴포넌트로 그렸지만, Claude Code의 `--mcp-config`는 Agent(=Claude Code 프로세스)마다 별도의 stdio 자식 프로세스로 MCP 서버를 띄우는 것이 기본 방식이다. Agent A와 Agent B가 서로 다른 프로세스에서 뜬 MCP 서버를 통해 통신하려면 그 상태가 어딘가 공유되어야 하므로, 각 stdio MCP 서버 인스턴스가 [data-model.md §7](data-model.md#7-저장소-권장)에서 이미 권장했던 같은 SQLite 파일을 공유하도록 구현했다. 오케스트레이터라는 별도 상시 프로세스를 새로 띄우지 않고도 여러 Agent 간 통신이 성립한다.
+
+### 12.2 실측 검증: `ask_agent`/`answer_question` 승인 게이트
+
+실제 `claude -p` 세션(에이전트 역할극)으로 네 가지 경로를 모두 확인했다.
+
+| 경로 | 결과 |
+|---|---|
+| `ask_agent` → Human 승인 | 정확한 `question_id`와 함께 승인 메시지 반환 |
+| `ask_agent` → Human 거절(사유 포함) | 도구 호출이 그 사유 그대로 반환됨 — [data-model.md §3.2](data-model.md#32-상태-흐름-89-대응)에서 설계한 "별도 전달 단계 없이 즉시 반환" 그대로 동작 |
+| `answer_question` → Human 승인 | `answer_id`와 함께 승인 메시지 반환, `contentStatus`(`ANSWERABLE` 등)도 정확히 저장됨 |
+| `answer_question` → Human 거절 | 코드 리뷰로만 확인(승인 경로와 대칭적인 로직이라 별도 API 호출 검증은 생략) |
+
+### 12.3 알려진 한계 (다음 단계에서 해결 예정)
+
+- **자동 전달 미구현**: 질문이 승인돼도 대상 Agent의 다음 턴에 자동으로 주입되지 않는다. 답변이 승인돼도 질문한 Agent에게 자동으로 전달되지 않는다. 지금은 Human이 `admin-cli`로 상태를 보고 각 Agent를 수동으로 `resume()`해야 한다. `ProcessManager`와 `mcp-server`/`qa-store`를 잇는 게 다음 통합 작업이다.
+- **Agent 신원 자가 신고**: `from_agent_id`를 도구 호출 인자로 Agent 스스로 보고하게 했다(연결 자체로 신원을 강제하지 않음). Agent들이 모두 우리가 배포한 시스템 프롬프트/설정을 따른다는 전제하에는 MVP로 충분하지만, 진짜 신뢰 경계가 필요해지면 Agent별로 별도 HTTP 엔드포인트를 두는 등의 방식으로 바꿔야 한다.
 
 ## 다음 단계
 
-Hook 수신 서버와 MCP 서버(`ask_agent`/`answer_question`) 구현으로 진행한다.
+`ProcessManager`와 `qa-store`/`mcp-server`를 통합해, 질문 승인 시 대상 Agent를 실제로 `resume()`하고 답변 승인 시 질문자 Agent에게 실제로 전달하는 흐름을 완성한다. 이후 Hook 수신 서버(Event Log)와 CLI(`admin-cli.ts` 확장)로 진행한다.

@@ -6,9 +6,17 @@
   "description": "Human-in-the-loop orchestration system for coordinating multiple AI agents across software projects.",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "manual-test:process-manager": "tsx src/manual-test-process-manager.ts"
+    "manual-test:process-manager": "tsx src/manual-test-process-manager.ts",
+    "mcp-server": "tsx src/mcp-server.ts",
+    "admin": "tsx src/admin-cli.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.18.2",
+    "better-sqlite3": "^11.7.0",
+    "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.12",
     "@types/node": "^22.10.0",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"

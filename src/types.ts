@@ -25,3 +25,57 @@ export interface AgentConfig {
   /** headless 모드는 권한 프롬프트를 띄울 수 없으므로, 승인 없이 쓸 도구를 명시해야 한다. */
   allowedTools?: string[];
 }
+
+// docs/data-model.md §3 참고
+
+export type QuestionStatus =
+  | "PENDING_HUMAN_REVIEW"
+  | "REJECTED"
+  | "APPROVED"
+  | "DELIVERED"
+  | "ANSWERED"
+  | "CLOSED";
+
+export interface Question {
+  id: string;
+  fromAgentId: string;
+  toAgentId: string;
+  text: string;
+  selfJustification: string;
+  status: QuestionStatus;
+  humanReviewer: string | null;
+  reviewReason: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  deliveredAt: string | null;
+}
+
+// docs/data-model.md §4 참고
+
+export const ANSWER_CONTENT_STATUSES = [
+  "ANSWERABLE",
+  "PARTIALLY_ANSWERABLE",
+  "INSUFFICIENT_CONTEXT",
+  "OUT_OF_SCOPE",
+  "AMBIGUOUS",
+  "CONFLICTING_INFORMATION",
+  "UNKNOWN",
+] as const;
+
+export type AnswerContentStatus = (typeof ANSWER_CONTENT_STATUSES)[number];
+
+export type AnswerReviewStatus = "PENDING_HUMAN_REVIEW" | "APPROVED" | "REJECTED" | "DELIVERED";
+
+export interface Answer {
+  id: string;
+  questionId: string;
+  fromAgentId: string;
+  text: string;
+  contentStatus: AnswerContentStatus;
+  reviewStatus: AnswerReviewStatus;
+  humanReviewer: string | null;
+  reviewReason: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  deliveredAt: string | null;
+}
