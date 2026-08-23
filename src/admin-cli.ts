@@ -2,9 +2,13 @@ import { openDb } from "./db.js";
 import { QaStore } from "./qa-store.js";
 import { EventLogStore } from "./event-log.js";
 import { AgentStore, computeActivityLabel } from "./agent-store.js";
+import { InterventionStore } from "./intervention-store.js";
 
 // Human이 대기 중인 Question/Answer를 확인하고 승인/거절하고, Event Log와 Agent 상태를
-// 조회하는 최소 CLI.
+// 조회하고, Agent에 개입(pause/resume/stop/직접 지시)하는 최소 CLI.
+//
+// pause-agent/resume-agent/stop-agent/instruct-agent는 실행 중인 Orchestrator 프로세스가
+// 폴링하며 실제로 적용한다 — 이 CLI는 "개입 요청"만 DB에 남긴다(Question/Answer 승인과 같은 패턴).
 //
 // 사용법:
 //   npm run admin -- list-questions
@@ -15,6 +19,10 @@ import { AgentStore, computeActivityLabel } from "./agent-store.js";
 //   npm run admin -- decide-answer <id> reject "사유"
 //   npm run admin -- list-events [agentId]
 //   npm run admin -- list-agents
+//   npm run admin -- pause-agent <agentId>
+//   npm run admin -- resume-agent <agentId> [prompt]
+//   npm run admin -- stop-agent <agentId>
+//   npm run admin -- instruct-agent <agentId> <prompt>
 
 const REVIEWER = "human";
 
@@ -22,6 +30,7 @@ const db = openDb();
 const eventLog = new EventLogStore(db);
 const store = new QaStore(db, eventLog);
 const agentStore = new AgentStore(db);
+const interventionStore = new InterventionStore(db);
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -108,15 +117,64 @@ switch (command) {
     break;
   }
 
+  case "pause-agent": {
+    const [agentId] = args;
+    requireAgentId(agentId);
+    interventionStore.request(agentId, "PAUSE", null, REVIEWER);
+    console.log(`${agentId} pause 요청됨 (Orchestrator가 다음 polling에서 적용)`);
+    break;
+  }
+
+  case "resume-agent": {
+    const [agentId, ...promptParts] = args;
+    requireAgentId(agentId);
+    const prompt = promptParts.join(" ") || null;
+    interventionStore.request(agentId, "RESUME", prompt, REVIEWER);
+    console.log(`${agentId} resume 요청됨`);
+    break;
+  }
+
+  case "stop-agent": {
+    const [agentId] = args;
+    requireAgentId(agentId);
+    interventionStore.request(agentId, "STOP", null, REVIEWER);
+    console.log(`${agentId} stop 요청됨`);
+    break;
+  }
+
+  case "instruct-agent": {
+    const [agentId, ...promptParts] = args;
+    const prompt = promptParts.join(" ");
+    requireAgentId(agentId);
+    if (!prompt) {
+      console.error("지시할 프롬프트가 필요합니다.");
+      process.exit(1);
+    }
+    // requirements.md §12.2 Direct Instruction: 지금 도는 턴을 끊고(PAUSE) 그 위에 새 지시를 얹어
+    // 재개(RESUME)한다. 이미 한가한 Agent라면 PAUSE는 아무 효과 없이 넘어가고 RESUME만 적용된다.
+    interventionStore.request(agentId, "PAUSE", null, REVIEWER);
+    interventionStore.request(agentId, "RESUME", prompt, REVIEWER);
+    console.log(`${agentId}에게 직접 지시 요청됨: ${prompt}`);
+    break;
+  }
+
   default:
     console.log(
-      "사용법: list-questions | decide-question <id> approve|reject [reason] | list-answers | decide-answer <id> approve|reject [reason] | list-events [agentId] | list-agents"
+      "사용법: list-questions | decide-question <id> approve|reject [reason] | list-answers | decide-answer <id> approve|reject [reason] | " +
+        "list-events [agentId] | list-agents | pause-agent <id> | resume-agent <id> [prompt] | stop-agent <id> | instruct-agent <id> <prompt>"
     );
 }
 
 function requireDecisionArgs(id: string | undefined, decision: string | undefined): asserts id is string {
   if (!id || (decision !== "approve" && decision !== "reject")) {
     console.error("id와 approve|reject가 필요합니다.");
+    process.exit(1);
+  }
+}
+
+function requireAgentId(agentId: string | undefined): asserts agentId is string {
+  if (!agentId) {
+    console.error("agentId가 필요합니다.");
     process.exit(1);
   }
 }

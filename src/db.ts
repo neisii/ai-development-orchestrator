@@ -61,6 +61,17 @@ export function openDb(path: string = process.env.ORCHESTRATOR_DB_PATH ?? DEFAUL
       lifecycleState TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS interventions (
+      id TEXT PRIMARY KEY,
+      agentId TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      prompt TEXT,
+      requestedBy TEXT NOT NULL,
+      requestedAt TEXT NOT NULL,
+      appliedAt TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_interventions_pending ON interventions (appliedAt, requestedAt);
   `);
   return db;
 }

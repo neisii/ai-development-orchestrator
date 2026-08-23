@@ -22,6 +22,21 @@ export interface AgentRecord {
   updatedAt: string;
 }
 
+// docs/requirements.md §12 참고. Direct Instruction은 별도 kind가 아니라 프롬프트가 있는
+// RESUME이다 — architecture.md §5: "SIGTERM으로 턴 중단 후 --resume 시 새 지시를 프롬프트로
+// 얹어서 전달"이 그대로 PAUSE(필요시) + RESUME(prompt) 조합과 같다.
+export type InterventionKind = "PAUSE" | "RESUME" | "STOP";
+
+export interface Intervention {
+  id: string;
+  agentId: string;
+  kind: InterventionKind;
+  prompt: string | null;
+  requestedBy: string;
+  requestedAt: string;
+  appliedAt: string | null;
+}
+
 export interface AgentConfig {
   id: string;
   projectPath: string;

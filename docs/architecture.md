@@ -145,7 +145,7 @@ flowchart LR
 
 **실측 검증**(`src/manual-test-hooks.ts`, `claude -p`로 Bash 명령 1회 실행): `SESSION_START` → `TOOL_PRE` → `TOOL_POST` → `SESSION_END` 4개 이벤트가 전부 정확히 기록됨. Question/Answer 이벤트 4종(`QUESTION_CREATED`/`QUESTION_REVIEWED`/`ANSWER_CREATED`/`ANSWER_REVIEWED`)도 `qa-store`만 직접 호출해 확인됨.
 
-Intervention(§12 Pause/Resume/Stop/Direct Instruction)에 대한 Event Log 기록은 아직 연결하지 않았다 — `ProcessManager`가 현재 DB에 접근하지 않기 때문이며, 다음 단계 후보로 남겨둔다.
+Intervention(§12 Pause/Resume/Stop/Direct Instruction)에 대한 Event Log 기록은 §12.6에서 연결했다.
 
 ## 7. Agent 상태 매핑 (§14 대응)
 
@@ -196,10 +196,11 @@ Agent 상태(`ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등)는 오케스트�
   - `claudeConfigDir`을 지정하지 않으면(§9) 정상 동작, 새 빈 디렉터리를 지정하면 인증 실패 재현됨
 - `src/db.ts` / `src/qa-store.ts` — Question/Answer 저장소. §설계와 달리 "오케스트레이터가 유일한 writer"가 아니라, Agent마다 뜨는 MCP 서버 프로세스 여러 개가 같은 SQLite 파일을 공유하는 구조로 구현했다(아래 참고).
 - `src/mcp-server.ts` — `ask_agent`/`answer_question` 도구를 제공하는 stdio MCP 서버. Human 결정 대기는 SQLite 폴링(1초 간격)으로 구현했다(§4.1에서 5분까지 무타임아웃이 확인된 걸 근거로 안전하다고 판단).
-- `src/admin-cli.ts` — Human이 대기 중인 질문/답변을 보고 승인/거절하고, Event Log·Agent 상태를 조회하는 최소 CLI.
-- `src/orchestrator.ts` — 승인된 Question/Answer를 대상 Agent에게 자동 전달하고(§12.4), Agent lifecycle을 `agent-store.ts`에 기록(§12.5).
+- `src/admin-cli.ts` — Human이 대기 중인 질문/답변을 보고 승인/거절하고, Event Log·Agent 상태를 조회하고, Agent에 개입(§12.6)하는 최소 CLI.
+- `src/orchestrator.ts` — 승인된 Question/Answer를 대상 Agent에게 자동 전달하고(§12.4), Agent lifecycle을 `agent-store.ts`에 기록하고(§12.5), 개입 요청을 처리한다(§12.6).
 - `src/event-log.ts` / `src/hook-server.ts` / `src/agent-settings.ts` — Event Log 파이프라인(§6.1).
 - `src/agent-store.ts` — Agent 상태 저장 및 Activity Label 계산(§12.5).
+- `src/intervention-store.ts` — Human Intervention 요청 큐(§12.6).
 
 ### 12.1 설계 변경: MCP 서버를 "여러 stdio 인스턴스 + 공유 SQLite"로 구현
 
@@ -237,10 +238,19 @@ Activity Label(§2.3)은 저장하지 않고 조회 시점에 `computeActivityLa
 
 **실측 검증**: `manual-test-orchestrator.ts` 실행 도중 별도 `admin-cli list-agents` 호출로 실시간 상태를 확인했다 — `api-agent`가 질문을 막 전달받아 `STARTING`인 동안 `buyer-bff`는 이미 `COMPLETED`로 정확히 구분되어 표시됐고, 최종적으로 둘 다 `COMPLETED`로 수렴했다. (이 테스트는 hook 설정 없이 돌렸기 때문에 Activity Label은 비어 있었다 — `TOOL_PRE` 이벤트가 없으니 계산할 게 없는 게 정상이다. Activity Label 계산 자체는 `manual-test-hooks.ts`에서 이미 검증된 Event Log 데이터를 사용한다.)
 
+## 12.6 Human Intervention의 Event Log 기록
+
+Question/Answer 승인과 같은 패턴이다: `admin-cli`(`pause-agent`/`resume-agent`/`stop-agent`/`instruct-agent`)는 `src/intervention-store.ts`의 새 `interventions` 테이블에 "개입 요청"만 남기고, `Orchestrator.tick()`이 폴링하며 실제로 `pm.pause()`/`pm.resume()`/`pm.stop()`을 호출한 뒤 `INTERVENTION` Event Log를 남긴다.
+
+**Direct Instruction은 별도 kind가 아니다**: requirements.md §12.2("SIGTERM으로 턴을 끊고 `--resume` 시 새 지시를 프롬프트로 얹어 전달")를 그대로 따라, `instruct-agent`는 `PAUSE` 요청 하나와 프롬프트가 있는 `RESUME` 요청 하나를 순서대로 큐에 넣는 것으로 구현했다. Agent가 이미 한가하면 `PAUSE`는 아무 효과 없이 지나가고 `RESUME`만 적용된다.
+
+**버그와 수정**: 처음 구현에서는 Q&A 자동 전달용 `isDeliverable()`(PAUSED를 "바쁨"으로 취급 — 사람이 멈춰둔 Agent를 자동 전달로 방해하지 않기 위한 설계)을 RESUME 개입에도 그대로 재사용했다가, RESUME이 정작 필요한 PAUSED 상태에서 스스로 막혀 영원히 적용되지 않는 버그가 났다. `canApplyResume()`을 별도로 분리해(PAUSED를 "재개 가능"으로 취급) 해결했다 — 실행해서 막힌 걸 보고 나서야 발견한 문제였다.
+
+**실측 검증**(`src/manual-test-intervention.ts`, 실제 `claude -p` 세션): 텍스트 생성 도중 `pause-agent`(실제 셸로 `admin-cli` 호출) → `PAUSED` → `resume-agent`(프롬프트 포함) → `RUNNING` → `COMPLETED`. 이어서 새 세션에서 생성 도중 `instruct-agent` → `PAUSE` 즉시 적용 → `RESUME`(새 지시) 적용 → `COMPLETED`. Event Log에 `INTERVENTION` 4건(`PAUSE`×2, `RESUME`×2)이 `prompt`/`requestedBy`까지 정확히 기록됨을 확인했다.
+
 ## 다음 단계
 
-`admin-cli.ts`가 `list-questions`/`decide-question`/`list-answers`/`decide-answer`/`list-events`/`list-agents`를 모두 갖추면서 [mvp-scope.md](mvp-scope.md)의 완료 기준 7개를 실행 가능한 형태로 충족했다. 남은 정리 작업:
+`admin-cli.ts`가 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction 개입까지 모두 갖추면서 [mvp-scope.md](mvp-scope.md)의 완료 기준 7개를 실행 가능한 형태로 충족했다. 남은 정리 작업:
 
-- Intervention(Pause/Resume/Stop/Direct Instruction)의 Event Log 기록 — `ProcessManager`가 아직 DB에 접근하지 않음(§6.1)
 - Agent 신원 자가 신고 한계(§12.3) — 진짜 신뢰 경계가 필요해지면 재검토
 - mvp-scope.md의 완료 기준 7개를 하나의 시나리오로 잇는 통합 테스트(지금까지는 컴포넌트별/부분 왕복만 검증됨)
