@@ -78,6 +78,20 @@ export class QaStore {
     throw new Error(`Question ${id} was not reviewed within ${timeoutMs}ms`);
   }
 
+  /** 승인됐지만 아직 대상 Agent에게 전달되지 않은 질문들. Orchestrator의 전달 루프가 사용한다. */
+  listUndeliveredApprovedQuestions(): Question[] {
+    return this.db
+      .prepare("SELECT * FROM questions WHERE status = 'APPROVED' ORDER BY reviewedAt")
+      .all() as Question[];
+  }
+
+  /** §3.2: APPROVED --> DELIVERED */
+  markQuestionDelivered(id: string): void {
+    this.db
+      .prepare(`UPDATE questions SET status = 'DELIVERED', deliveredAt = ? WHERE id = ? AND status = 'APPROVED'`)
+      .run(new Date().toISOString(), id);
+  }
+
   createAnswer(input: {
     questionId: string;
     fromAgentId: string;
@@ -134,6 +148,26 @@ export class QaStore {
       await sleep(POLL_INTERVAL_MS);
     }
     throw new Error(`Answer ${id} was not reviewed within ${timeoutMs}ms`);
+  }
+
+  /** 승인됐지만 아직 질문한 Agent에게 전달되지 않은 답변들. */
+  listUndeliveredApprovedAnswers(): Answer[] {
+    return this.db
+      .prepare("SELECT * FROM answers WHERE reviewStatus = 'APPROVED' ORDER BY reviewedAt")
+      .all() as Answer[];
+  }
+
+  /** §4.3: APPROVED --> DELIVERED, 그리고 연결된 Question은 §3.2: ANSWERED --> CLOSED */
+  markAnswerDelivered(id: string): void {
+    const answer = this.getAnswer(id);
+    if (!answer) return;
+    const now = new Date().toISOString();
+    this.db
+      .prepare(`UPDATE answers SET reviewStatus = 'DELIVERED', deliveredAt = ? WHERE id = ? AND reviewStatus = 'APPROVED'`)
+      .run(now, id);
+    this.db
+      .prepare(`UPDATE questions SET status = 'CLOSED' WHERE id = ? AND status = 'ANSWERED'`)
+      .run(answer.questionId);
   }
 }
 

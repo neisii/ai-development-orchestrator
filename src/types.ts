@@ -24,6 +24,8 @@ export interface AgentConfig {
   claudeConfigDir?: string;
   /** headless 모드는 권한 프롬프트를 띄울 수 없으므로, 승인 없이 쓸 도구를 명시해야 한다. */
   allowedTools?: string[];
+  /** ask_agent/answer_question 등을 쓰려면 이 Agent가 로드할 MCP 설정 파일 경로. */
+  mcpConfigPath?: string;
 }
 
 // docs/data-model.md §3 참고

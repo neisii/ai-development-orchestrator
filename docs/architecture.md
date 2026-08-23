@@ -201,11 +201,19 @@ Agent 상태(`ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등)는 오케스트�
 | `answer_question` → Human 승인 | `answer_id`와 함께 승인 메시지 반환, `contentStatus`(`ANSWERABLE` 등)도 정확히 저장됨 |
 | `answer_question` → Human 거절 | 코드 리뷰로만 확인(승인 경로와 대칭적인 로직이라 별도 API 호출 검증은 생략) |
 
-### 12.3 알려진 한계 (다음 단계에서 해결 예정)
+### 12.3 알려진 한계 (§12.4에서 해결됨)
 
-- **자동 전달 미구현**: 질문이 승인돼도 대상 Agent의 다음 턴에 자동으로 주입되지 않는다. 답변이 승인돼도 질문한 Agent에게 자동으로 전달되지 않는다. 지금은 Human이 `admin-cli`로 상태를 보고 각 Agent를 수동으로 `resume()`해야 한다. `ProcessManager`와 `mcp-server`/`qa-store`를 잇는 게 다음 통합 작업이다.
+- ~~**자동 전달 미구현**~~ → §12.4에서 해결.
 - **Agent 신원 자가 신고**: `from_agent_id`를 도구 호출 인자로 Agent 스스로 보고하게 했다(연결 자체로 신원을 강제하지 않음). Agent들이 모두 우리가 배포한 시스템 프롬프트/설정을 따른다는 전제하에는 MVP로 충분하지만, 진짜 신뢰 경계가 필요해지면 Agent별로 별도 HTTP 엔드포인트를 두는 등의 방식으로 바꿔야 한다.
+
+## 12.4 `ProcessManager` ↔ `qa-store`/`mcp-server` 통합
+
+`src/orchestrator.ts`가 이 둘을 잇는다. 폴링 루프(`tick()`, 기본 2초 간격)가 승인됐지만 아직 전달되지 않은 Question/Answer(`listUndeliveredApprovedQuestions`/`listUndeliveredApprovedAnswers`)를 찾아 대상 Agent의 `ProcessManager`를 `start()`(첫 세션이면) 또는 `resume()`(이미 세션이 있으면)한다.
+
+**"지금 전달해도 되는가" 판단**: data-model.md §2.2의 `WAITING_APPROVAL`/`WAITING_AGENT`는 이번 구현에서 별도로 만들지 않았다. Agent가 `ask_agent`/`answer_question` 호출로 승인을 기다리는 동안에도 그 Claude 프로세스 자체는 stdio에서 도구 응답을 기다리며 계속 살아있으므로, `ProcessManager` 입장에서는 이미 `RUNNING`으로 정확히 관찰된다. 즉 "이 Agent에게 새 프롬프트를 지금 밀어넣어도 되는가"라는 질문에는 `RUNNING`(및 `STARTING`/`PAUSED`) 여부만으로 충분히 안전하게 답할 수 있었다 — `WAITING_APPROVAL`/`WAITING_AGENT`는 관찰 가능성(사람이 보기 좋은 라벨) 목적으로만 필요하고, 이번 통합의 정확성에는 영향이 없었다.
+
+**실측 검증**: `src/manual-test-orchestrator.ts`로 전체 왕복을 실제 두 개의 `claude -p` 세션(agent 역할극)으로 검증했다. buyer-bff가 `ask_agent` 호출 → (Human 승인 시뮬레이션) → Orchestrator가 api-agent를 자동 `start()` → api-agent가 `answer_question` 호출(실제로 작업 디렉터리가 비어 있어 `INSUFFICIENT_CONTEXT`로 정직하게 답변 — requirements.md §11 원칙이 실제로 발동한 사례) → (Human 승인 시뮬레이션) → Orchestrator가 buyer-bff를 자동 `resume()` → buyer-bff가 답변을 반영한 최종 응답 생성. Human 개입은 승인 두 번뿐이었고, 나머지 전달은 전부 자동으로 이어졌다.
 
 ## 다음 단계
 
-`ProcessManager`와 `qa-store`/`mcp-server`를 통합해, 질문 승인 시 대상 Agent를 실제로 `resume()`하고 답변 승인 시 질문자 Agent에게 실제로 전달하는 흐름을 완성한다. 이후 Hook 수신 서버(Event Log)와 CLI(`admin-cli.ts` 확장)로 진행한다.
+Hook 수신 서버(Event Log 수집)와 CLI(`admin-cli.ts`를 Event Log 조회·Agent 상태 표시까지 확장)로 진행한다.

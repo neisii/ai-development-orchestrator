@@ -21,6 +21,7 @@ export class ProcessManager extends EventEmitter {
   private readonly projectPath: string;
   private readonly claudeConfigDir: string | undefined;
   private readonly allowedTools: string[];
+  private readonly mcpConfigPath: string | undefined;
 
   private child: ChildProcessWithoutNullStreams | null = null;
   private sessionId: string | null = null;
@@ -33,12 +34,18 @@ export class ProcessManager extends EventEmitter {
     this.projectPath = config.projectPath;
     this.claudeConfigDir = config.claudeConfigDir;
     this.allowedTools = config.allowedTools ?? [];
+    this.mcpConfigPath = config.mcpConfigPath;
   }
 
   private baseArgs(): string[] {
-    return this.allowedTools.length > 0
-      ? ["--allowedTools", this.allowedTools.join(",")]
-      : [];
+    const args: string[] = [];
+    if (this.allowedTools.length > 0) {
+      args.push("--allowedTools", this.allowedTools.join(","));
+    }
+    if (this.mcpConfigPath) {
+      args.push("--mcp-config", this.mcpConfigPath, "--strict-mcp-config");
+    }
+    return args;
   }
 
   getState(): { lifecycleState: AgentLifecycleState; sessionId: string | null; pid: number | null } {
