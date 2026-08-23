@@ -1,5 +1,6 @@
 import { ProcessManager } from "./process-manager.js";
 import type { QaStore } from "./qa-store.js";
+import type { AgentStore } from "./agent-store.js";
 
 // docs/architecture.md "다음 단계"에서 남긴 통합 작업: 승인된 Question/Answer를 실제로
 // 대상 Agent에게 전달(resume)한다.
@@ -16,11 +17,26 @@ export class Orchestrator {
 
   constructor(
     private readonly store: QaStore,
+    private readonly agentStore: AgentStore,
     private readonly pollIntervalMs = 2000
   ) {}
 
+  /** 등록과 동시에, 이후 모든 lifecycle 변화를 agentStore(§2)에 기록하도록 구독한다. */
   registerAgent(pm: ProcessManager): void {
     this.agents.set(pm.id, pm);
+    this.persistState(pm);
+    pm.on("lifecycle-change", () => this.persistState(pm));
+  }
+
+  private persistState(pm: ProcessManager): void {
+    const state = pm.getState();
+    this.agentStore.upsert({
+      id: pm.id,
+      projectPath: pm.projectPath,
+      sessionId: state.sessionId,
+      pid: state.pid,
+      lifecycleState: state.lifecycleState,
+    });
   }
 
   getAgent(id: string): ProcessManager | undefined {

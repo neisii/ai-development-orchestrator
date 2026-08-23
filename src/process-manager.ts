@@ -18,7 +18,7 @@ export declare interface ProcessManager {
 
 export class ProcessManager extends EventEmitter {
   readonly id: string;
-  private readonly projectPath: string;
+  readonly projectPath: string;
   private readonly claudeConfigDir: string | undefined;
   private readonly allowedTools: string[];
   private readonly mcpConfigPath: string | undefined;

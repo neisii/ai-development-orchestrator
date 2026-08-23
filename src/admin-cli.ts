@@ -1,9 +1,10 @@
 import { openDb } from "./db.js";
 import { QaStore } from "./qa-store.js";
 import { EventLogStore } from "./event-log.js";
+import { AgentStore, computeActivityLabel } from "./agent-store.js";
 
-// Human이 대기 중인 Question/Answer를 확인하고 승인/거절하고, Event Log를 조회하는 최소 CLI.
-// docs/architecture.md의 "CLI"는 이후 여기에 Agent 상태 표시 등이 합쳐질 예정이다.
+// Human이 대기 중인 Question/Answer를 확인하고 승인/거절하고, Event Log와 Agent 상태를
+// 조회하는 최소 CLI.
 //
 // 사용법:
 //   npm run admin -- list-questions
@@ -13,12 +14,14 @@ import { EventLogStore } from "./event-log.js";
 //   npm run admin -- decide-answer <id> approve
 //   npm run admin -- decide-answer <id> reject "사유"
 //   npm run admin -- list-events [agentId]
+//   npm run admin -- list-agents
 
 const REVIEWER = "human";
 
 const db = openDb();
 const eventLog = new EventLogStore(db);
 const store = new QaStore(db, eventLog);
+const agentStore = new AgentStore(db);
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -82,9 +85,32 @@ switch (command) {
     break;
   }
 
+  case "list-agents": {
+    const agents = agentStore.list();
+    if (agents.length === 0) {
+      console.log("등록된 Agent 없음");
+      break;
+    }
+    const pendingQuestions = store.listPendingQuestions();
+    for (const a of agents) {
+      const activity = computeActivityLabel(eventLog, a.id);
+      const waitingOn = pendingQuestions.find((q) => q.fromAgentId === a.id);
+      const parts = [
+        `[${a.id}] ${a.lifecycleState}`,
+        activity ? `(${activity})` : null,
+        `session=${a.sessionId ?? "-"}`,
+        `pid=${a.pid ?? "-"}`,
+        waitingOn ? `Human 승인 대기 중인 질문=${waitingOn.id}` : null,
+      ].filter(Boolean);
+      console.log(parts.join(" "));
+      console.log(`  갱신: ${a.updatedAt}`);
+    }
+    break;
+  }
+
   default:
     console.log(
-      "사용법: list-questions | decide-question <id> approve|reject [reason] | list-answers | decide-answer <id> approve|reject [reason] | list-events [agentId]"
+      "사용법: list-questions | decide-question <id> approve|reject [reason] | list-answers | decide-answer <id> approve|reject [reason] | list-events [agentId] | list-agents"
     );
 }
 

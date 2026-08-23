@@ -12,6 +12,16 @@ export type AgentLifecycleState =
 
 export type AgentActivityLabel = "ANALYZING" | "IMPLEMENTING" | "TESTING" | null;
 
+/** §2.1의 신뢰 가능한 부분만 담는다. activityLabel은 조회 시점에 Event Log에서 계산한다(§2.3). */
+export interface AgentRecord {
+  id: string;
+  projectPath: string;
+  sessionId: string | null;
+  pid: number | null;
+  lifecycleState: AgentLifecycleState;
+  updatedAt: string;
+}
+
 export interface AgentConfig {
   id: string;
   projectPath: string;

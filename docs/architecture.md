@@ -196,9 +196,10 @@ Agent 상태(`ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등)는 오케스트�
   - `claudeConfigDir`을 지정하지 않으면(§9) 정상 동작, 새 빈 디렉터리를 지정하면 인증 실패 재현됨
 - `src/db.ts` / `src/qa-store.ts` — Question/Answer 저장소. §설계와 달리 "오케스트레이터가 유일한 writer"가 아니라, Agent마다 뜨는 MCP 서버 프로세스 여러 개가 같은 SQLite 파일을 공유하는 구조로 구현했다(아래 참고).
 - `src/mcp-server.ts` — `ask_agent`/`answer_question` 도구를 제공하는 stdio MCP 서버. Human 결정 대기는 SQLite 폴링(1초 간격)으로 구현했다(§4.1에서 5분까지 무타임아웃이 확인된 걸 근거로 안전하다고 판단).
-- `src/admin-cli.ts` — Human이 대기 중인 질문/답변을 보고 승인/거절하고 Event Log를 조회하는 최소 CLI. 향후 CLI 컴포넌트의 출발점.
-- `src/orchestrator.ts` — 승인된 Question/Answer를 대상 Agent에게 자동 전달(§12.4).
+- `src/admin-cli.ts` — Human이 대기 중인 질문/답변을 보고 승인/거절하고, Event Log·Agent 상태를 조회하는 최소 CLI.
+- `src/orchestrator.ts` — 승인된 Question/Answer를 대상 Agent에게 자동 전달하고(§12.4), Agent lifecycle을 `agent-store.ts`에 기록(§12.5).
 - `src/event-log.ts` / `src/hook-server.ts` / `src/agent-settings.ts` — Event Log 파이프라인(§6.1).
+- `src/agent-store.ts` — Agent 상태 저장 및 Activity Label 계산(§12.5).
 
 ### 12.1 설계 변경: MCP 서버를 "여러 stdio 인스턴스 + 공유 SQLite"로 구현
 
@@ -228,6 +229,18 @@ Agent 상태(`ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등)는 오케스트�
 
 **실측 검증**: `src/manual-test-orchestrator.ts`로 전체 왕복을 실제 두 개의 `claude -p` 세션(agent 역할극)으로 검증했다. buyer-bff가 `ask_agent` 호출 → (Human 승인 시뮬레이션) → Orchestrator가 api-agent를 자동 `start()` → api-agent가 `answer_question` 호출(실제로 작업 디렉터리가 비어 있어 `INSUFFICIENT_CONTEXT`로 정직하게 답변 — requirements.md §11 원칙이 실제로 발동한 사례) → (Human 승인 시뮬레이션) → Orchestrator가 buyer-bff를 자동 `resume()` → buyer-bff가 답변을 반영한 최종 응답 생성. Human 개입은 승인 두 번뿐이었고, 나머지 전달은 전부 자동으로 이어졌다.
 
+## 12.5 Agent 상태 CLI (§14 대응, mvp-scope.md 완료 기준 충족)
+
+`admin-cli.ts`는 매번 새로 뜨는 짧은 프로세스라 `ProcessManager`의 인메모리 상태를 직접 볼 수 없다. 그래서 `Orchestrator.registerAgent()`가 등록 시점과 이후 모든 `lifecycle-change`마다 `src/agent-store.ts`(새 `agents` 테이블)에 상태를 기록해두고, `admin-cli list-agents`는 그걸 조회한다.
+
+Activity Label(§2.3)은 저장하지 않고 조회 시점에 `computeActivityLabel()`이 Event Log에서 가장 최근 `TOOL_PRE`를 찾아 계산한다 — §1에서 정한 "원시 데이터와 파생 표시를 분리한다" 원칙을 여기서도 그대로 따른 것이다.
+
+**실측 검증**: `manual-test-orchestrator.ts` 실행 도중 별도 `admin-cli list-agents` 호출로 실시간 상태를 확인했다 — `api-agent`가 질문을 막 전달받아 `STARTING`인 동안 `buyer-bff`는 이미 `COMPLETED`로 정확히 구분되어 표시됐고, 최종적으로 둘 다 `COMPLETED`로 수렴했다. (이 테스트는 hook 설정 없이 돌렸기 때문에 Activity Label은 비어 있었다 — `TOOL_PRE` 이벤트가 없으니 계산할 게 없는 게 정상이다. Activity Label 계산 자체는 `manual-test-hooks.ts`에서 이미 검증된 Event Log 데이터를 사용한다.)
+
 ## 다음 단계
 
-`admin-cli.ts`에 `list-events` 명령을 추가했지만(§6.1), 아직 Agent 상태(§7 Lifecycle State/Activity Label) 조회 명령은 없다. 이걸 추가하면 [mvp-scope.md](mvp-scope.md)의 완료 기준을 모두 충족한다. 그 외 남은 것: Intervention의 Event Log 기록(§6.1), Agent 신원 자가 신고 한계(§12.3).
+`admin-cli.ts`가 `list-questions`/`decide-question`/`list-answers`/`decide-answer`/`list-events`/`list-agents`를 모두 갖추면서 [mvp-scope.md](mvp-scope.md)의 완료 기준 7개를 실행 가능한 형태로 충족했다. 남은 정리 작업:
+
+- Intervention(Pause/Resume/Stop/Direct Instruction)의 Event Log 기록 — `ProcessManager`가 아직 DB에 접근하지 않음(§6.1)
+- Agent 신원 자가 신고 한계(§12.3) — 진짜 신뢰 경계가 필요해지면 재검토
+- mvp-scope.md의 완료 기준 7개를 하나의 시나리오로 잇는 통합 테스트(지금까지는 컴포넌트별/부분 왕복만 검증됨)
