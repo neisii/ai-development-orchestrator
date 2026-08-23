@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "./db.js";
 import { QaStore } from "./qa-store.js";
+import { EventLogStore } from "./event-log.js";
 import { ProcessManager } from "./process-manager.js";
 import { Orchestrator } from "./orchestrator.js";
 
@@ -31,7 +32,8 @@ writeFileSync(
 
 console.log("workDir:", workDir);
 
-const store = new QaStore(openDb(dbPath));
+const db = openDb(dbPath);
+const store = new QaStore(db, new EventLogStore(db));
 const orchestrator = new Orchestrator(store, 2000);
 
 function makeAgent(id: string, tool: "ask_agent" | "answer_question"): ProcessManager {

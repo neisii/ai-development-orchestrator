@@ -1,8 +1,9 @@
 import { openDb } from "./db.js";
 import { QaStore } from "./qa-store.js";
+import { EventLogStore } from "./event-log.js";
 
-// Human이 대기 중인 Question/Answer를 확인하고 승인/거절하는 최소 CLI.
-// docs/architecture.md의 "CLI"는 이후 여기에 Event Log 조회, Agent 상태 표시 등이 합쳐질 예정이다.
+// Human이 대기 중인 Question/Answer를 확인하고 승인/거절하고, Event Log를 조회하는 최소 CLI.
+// docs/architecture.md의 "CLI"는 이후 여기에 Agent 상태 표시 등이 합쳐질 예정이다.
 //
 // 사용법:
 //   npm run admin -- list-questions
@@ -11,11 +12,13 @@ import { QaStore } from "./qa-store.js";
 //   npm run admin -- list-answers
 //   npm run admin -- decide-answer <id> approve
 //   npm run admin -- decide-answer <id> reject "사유"
+//   npm run admin -- list-events [agentId]
 
 const REVIEWER = "human";
 
 const db = openDb();
-const store = new QaStore(db);
+const eventLog = new EventLogStore(db);
+const store = new QaStore(db, eventLog);
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -66,9 +69,22 @@ switch (command) {
     break;
   }
 
+  case "list-events": {
+    const [agentId] = args;
+    const events = eventLog.list({ agentId, limit: 50 });
+    if (events.length === 0) {
+      console.log("이벤트 없음");
+      break;
+    }
+    for (const e of events) {
+      console.log(`[${e.timestamp}] ${e.agentId} ${e.type} (${e.source})`);
+    }
+    break;
+  }
+
   default:
     console.log(
-      "사용법: list-questions | decide-question <id> approve|reject [reason] | list-answers | decide-answer <id> approve|reject [reason]"
+      "사용법: list-questions | decide-question <id> approve|reject [reason] | list-answers | decide-answer <id> approve|reject [reason] | list-events [agentId]"
     );
 }
 

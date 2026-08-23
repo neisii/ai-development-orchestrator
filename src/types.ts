@@ -26,6 +26,8 @@ export interface AgentConfig {
   allowedTools?: string[];
   /** ask_agent/answer_question 등을 쓰려면 이 Agent가 로드할 MCP 설정 파일 경로. */
   mcpConfigPath?: string;
+  /** Event Log를 Hook 수신 서버로 보내려면 이 Agent가 로드할 settings 파일 경로. */
+  settingsPath?: string;
 }
 
 // docs/data-model.md §3 참고
@@ -80,4 +82,31 @@ export interface Answer {
   createdAt: string;
   reviewedAt: string | null;
   deliveredAt: string | null;
+}
+
+// docs/data-model.md §5 참고
+
+export type EventType =
+  | "SESSION_START"
+  | "SESSION_END"
+  | "TOOL_PRE"
+  | "TOOL_POST"
+  | "QUESTION_CREATED"
+  | "QUESTION_REVIEWED"
+  | "ANSWER_CREATED"
+  | "ANSWER_REVIEWED"
+  | "INTERVENTION";
+
+export type EventSource = "hook" | "mcp" | "orchestrator";
+
+export interface EventLogEntry {
+  id: string;
+  timestamp: string;
+  agentId: string;
+  sessionId: string | null;
+  type: EventType;
+  source: EventSource;
+  payload: unknown;
+  relatedQuestionId: string | null;
+  relatedAnswerId: string | null;
 }

@@ -3,24 +3,22 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { z } from "zod";
 import { openDb } from "./db.js";
 import { QaStore } from "./qa-store.js";
+import { EventLogStore } from "./event-log.js";
 import { ANSWER_CONTENT_STATUSES } from "./types.js";
 
-// docs/architecture.md §3, §7 / docs/data-model.md §3~4 참고.
+// docs/architecture.md §3, §7, §12.4 / docs/data-model.md §3~5 참고.
 //
 // 이 서버가 "Agent 간 통신 강제"의 실체다: Agent에게 다른 Agent와 대화할 수 있는 방법은
 // 이 두 도구(ask_agent/answer_question)뿐이고, 둘 다 이 서버(≈오케스트레이터)를 반드시 거친다.
 //
 // 각 Agent 프로세스가 이 스크립트를 --mcp-config로 각자 stdio 서버로 띄우되, 전부 같은
-// SQLite 파일(qa-store.ts)을 공유해서 서로의 질문/답변을 주고받는다.
+// SQLite 파일(qa-store.ts/event-log.ts)을 공유해서 서로의 질문/답변을 주고받고 Event Log도 함께 쌓는다.
 //
-// 알려진 한계 (다음 단계에서 ProcessManager와 통합 예정):
-// - 질문이 승인돼도 대상 Agent에게 자동으로 전달(그 Agent의 다음 턴에 주입)하지는 않는다.
-// - 답변이 승인돼도 질문한 Agent에게 자동으로 전달하지는 않는다.
-// 지금은 승인 게이트(§8~10)만 동작하며, 실제 전달(§4의 4번/§4의 "DELIVERED")은 사람이
-// admin-cli로 상태를 보고 수동으로 각 Agent를 resume()해야 한다.
+// 실제 전달(승인된 질문/답변을 대상 Agent에게 resume()하는 것)은 이 프로세스가 아니라
+// src/orchestrator.ts가 별도로 폴링하며 수행한다.
 
 const db = openDb();
-const store = new QaStore(db);
+const store = new QaStore(db, new EventLogStore(db));
 
 const server = new McpServer({ name: "orchestrator", version: "0.1.0" });
 

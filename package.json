@@ -7,7 +7,10 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "manual-test:process-manager": "tsx src/manual-test-process-manager.ts",
+    "manual-test:orchestrator": "tsx src/manual-test-orchestrator.ts",
+    "manual-test:hooks": "tsx src/manual-test-hooks.ts",
     "mcp-server": "tsx src/mcp-server.ts",
+    "hook-server": "tsx src/hook-server.ts",
     "admin": "tsx src/admin-cli.ts"
   },
   "dependencies": {

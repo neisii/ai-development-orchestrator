@@ -39,6 +39,19 @@ export function openDb(path: string = process.env.ORCHESTRATOR_DB_PATH ?? DEFAUL
       reviewedAt TEXT,
       deliveredAt TEXT
     );
+
+    CREATE TABLE IF NOT EXISTS event_log (
+      id TEXT PRIMARY KEY,
+      timestamp TEXT NOT NULL,
+      agentId TEXT NOT NULL,
+      sessionId TEXT,
+      type TEXT NOT NULL,
+      source TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      relatedQuestionId TEXT,
+      relatedAnswerId TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_event_log_agent ON event_log (agentId, timestamp);
   `);
   return db;
 }

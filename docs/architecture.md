@@ -133,7 +133,19 @@ flowchart LR
 
 ## 6. Event Log 파이프라인 (§13 대응)
 
-각 Agent의 hook(`PreToolUse`, `PostToolUse`, `SessionStart`, `SessionEnd` 등)이 오케스트레이터의 Hook 수신 서버로 이벤트를 보낸다. MCP 서버를 거치는 질문/답변/Intervention 이벤트도 같은 Event Log Store에 함께 쌓여, CLI에서 시간순으로 조회할 수 있다.
+각 Agent의 hook(`PreToolUse`, `PostToolUse`, `SessionStart`, `SessionEnd` 등)이 오케스트레이터의 Hook 수신 서버로 이벤트를 보낸다. MCP 서버를 거치는 질문/답변 이벤트도 같은 Event Log Store에 함께 쌓여, CLI에서 시간순으로 조회할 수 있다.
+
+### 6.1 구현 및 실측 검증
+
+- `src/hook-server.ts` — `POST /events?agentId=<id>`로 hook payload를 받아 SQLite `event_log` 테이블에 적재하는 최소 HTTP 서버. hook은 Agent의 도구 실행을 막고 기다리는 동기 호출이라, 응답을 최대한 빠르게(DB insert 하나) 돌려준다.
+- `src/agent-settings.ts` — Agent별 `settings.json`을 생성해 hook이 `curl -X POST .../events?agentId=...`로 이 서버를 호출하게 한다.
+- `src/event-log.ts` — `EventLogStore`. `qa-store.ts`도 이걸 공유해서 `QUESTION_CREATED`/`QUESTION_REVIEWED`/`ANSWER_CREATED`/`ANSWER_REVIEWED`를 같은 로그에 남긴다.
+
+**Hook 설정 형식**: 공식 문서에 정확한 스키마가 명시돼 있지 않아 로컬 v2.1.238로 직접 실험해서 확인했다. `PreToolUse`/`PostToolUse`는 `[{ matcher: "*", hooks: [{ type: "command", command: "..." }] }]` 형태(matcher 필요), `SessionStart`/`SessionEnd`는 matcher 없이 `[{ hooks: [...] }]`로도 동작했다.
+
+**실측 검증**(`src/manual-test-hooks.ts`, `claude -p`로 Bash 명령 1회 실행): `SESSION_START` → `TOOL_PRE` → `TOOL_POST` → `SESSION_END` 4개 이벤트가 전부 정확히 기록됨. Question/Answer 이벤트 4종(`QUESTION_CREATED`/`QUESTION_REVIEWED`/`ANSWER_CREATED`/`ANSWER_REVIEWED`)도 `qa-store`만 직접 호출해 확인됨.
+
+Intervention(§12 Pause/Resume/Stop/Direct Instruction)에 대한 Event Log 기록은 아직 연결하지 않았다 — `ProcessManager`가 현재 DB에 접근하지 않기 때문이며, 다음 단계 후보로 남겨둔다.
 
 ## 7. Agent 상태 매핑 (§14 대응)
 
@@ -184,7 +196,9 @@ Agent 상태(`ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등)는 오케스트�
   - `claudeConfigDir`을 지정하지 않으면(§9) 정상 동작, 새 빈 디렉터리를 지정하면 인증 실패 재현됨
 - `src/db.ts` / `src/qa-store.ts` — Question/Answer 저장소. §설계와 달리 "오케스트레이터가 유일한 writer"가 아니라, Agent마다 뜨는 MCP 서버 프로세스 여러 개가 같은 SQLite 파일을 공유하는 구조로 구현했다(아래 참고).
 - `src/mcp-server.ts` — `ask_agent`/`answer_question` 도구를 제공하는 stdio MCP 서버. Human 결정 대기는 SQLite 폴링(1초 간격)으로 구현했다(§4.1에서 5분까지 무타임아웃이 확인된 걸 근거로 안전하다고 판단).
-- `src/admin-cli.ts` — Human이 대기 중인 질문/답변을 보고 승인/거절하는 최소 CLI. 향후 CLI 컴포넌트의 출발점.
+- `src/admin-cli.ts` — Human이 대기 중인 질문/답변을 보고 승인/거절하고 Event Log를 조회하는 최소 CLI. 향후 CLI 컴포넌트의 출발점.
+- `src/orchestrator.ts` — 승인된 Question/Answer를 대상 Agent에게 자동 전달(§12.4).
+- `src/event-log.ts` / `src/hook-server.ts` / `src/agent-settings.ts` — Event Log 파이프라인(§6.1).
 
 ### 12.1 설계 변경: MCP 서버를 "여러 stdio 인스턴스 + 공유 SQLite"로 구현
 
@@ -216,4 +230,4 @@ Agent 상태(`ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등)는 오케스트�
 
 ## 다음 단계
 
-Hook 수신 서버(Event Log 수집)와 CLI(`admin-cli.ts`를 Event Log 조회·Agent 상태 표시까지 확장)로 진행한다.
+`admin-cli.ts`에 `list-events` 명령을 추가했지만(§6.1), 아직 Agent 상태(§7 Lifecycle State/Activity Label) 조회 명령은 없다. 이걸 추가하면 [mvp-scope.md](mvp-scope.md)의 완료 기준을 모두 충족한다. 그 외 남은 것: Intervention의 Event Log 기록(§6.1), Agent 신원 자가 신고 한계(§12.3).

@@ -7,6 +7,7 @@ import type {
   QuestionStatus,
   Answer,
 } from "./types.js";
+import type { EventLogStore } from "./event-log.js";
 
 // docs/data-model.md §3.2, §4.3 참고.
 // SQLite에는 pub/sub이 없으므로 "결정될 때까지 대기"는 폴링으로 구현한다.
@@ -20,7 +21,10 @@ function sleep(ms: number): Promise<void> {
 }
 
 export class QaStore {
-  constructor(private readonly db: Database.Database) {}
+  constructor(
+    private readonly db: Database.Database,
+    private readonly eventLog: EventLogStore
+  ) {}
 
   createQuestion(input: {
     fromAgentId: string;
@@ -44,6 +48,13 @@ export class QaStore {
          VALUES (@id, @fromAgentId, @toAgentId, @text, @selfJustification, @status, @humanReviewer, @reviewReason, @createdAt, @reviewedAt, @deliveredAt)`
       )
       .run(question);
+    this.eventLog.record({
+      agentId: question.fromAgentId,
+      type: "QUESTION_CREATED",
+      source: "mcp",
+      payload: question,
+      relatedQuestionId: question.id,
+    });
     return question;
   }
 
@@ -64,6 +75,16 @@ export class QaStore {
         `UPDATE questions SET status = @decision, humanReviewer = @reviewer, reviewReason = @reason, reviewedAt = @reviewedAt WHERE id = @id AND status = 'PENDING_HUMAN_REVIEW'`
       )
       .run({ id, decision, reviewer, reason, reviewedAt: new Date().toISOString() });
+    const question = this.getQuestion(id);
+    if (question) {
+      this.eventLog.record({
+        agentId: question.fromAgentId,
+        type: "QUESTION_REVIEWED",
+        source: "orchestrator",
+        payload: { decision, reviewer, reason },
+        relatedQuestionId: id,
+      });
+    }
   }
 
   /** 질문이 결정(APPROVED/REJECTED)될 때까지, 또는 timeoutMs를 넘길 때까지 폴링한다. */
@@ -118,6 +139,14 @@ export class QaStore {
     this.db
       .prepare(`UPDATE questions SET status = 'ANSWERED' WHERE id = ? AND status IN ('DELIVERED', 'APPROVED')`)
       .run(input.questionId);
+    this.eventLog.record({
+      agentId: answer.fromAgentId,
+      type: "ANSWER_CREATED",
+      source: "mcp",
+      payload: answer,
+      relatedQuestionId: answer.questionId,
+      relatedAnswerId: answer.id,
+    });
     return answer;
   }
 
@@ -137,6 +166,17 @@ export class QaStore {
         `UPDATE answers SET reviewStatus = @decision, humanReviewer = @reviewer, reviewReason = @reason, reviewedAt = @reviewedAt WHERE id = @id AND reviewStatus = 'PENDING_HUMAN_REVIEW'`
       )
       .run({ id, decision, reviewer, reason, reviewedAt: new Date().toISOString() });
+    const answer = this.getAnswer(id);
+    if (answer) {
+      this.eventLog.record({
+        agentId: answer.fromAgentId,
+        type: "ANSWER_REVIEWED",
+        source: "orchestrator",
+        payload: { decision, reviewer, reason },
+        relatedQuestionId: answer.questionId,
+        relatedAnswerId: id,
+      });
+    }
   }
 
   async waitForAnswerDecision(id: string, timeoutMs = 10 * 60 * 1000): Promise<Answer> {

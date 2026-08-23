@@ -22,6 +22,7 @@ export class ProcessManager extends EventEmitter {
   private readonly claudeConfigDir: string | undefined;
   private readonly allowedTools: string[];
   private readonly mcpConfigPath: string | undefined;
+  private readonly settingsPath: string | undefined;
 
   private child: ChildProcessWithoutNullStreams | null = null;
   private sessionId: string | null = null;
@@ -35,6 +36,7 @@ export class ProcessManager extends EventEmitter {
     this.claudeConfigDir = config.claudeConfigDir;
     this.allowedTools = config.allowedTools ?? [];
     this.mcpConfigPath = config.mcpConfigPath;
+    this.settingsPath = config.settingsPath;
   }
 
   private baseArgs(): string[] {
@@ -44,6 +46,9 @@ export class ProcessManager extends EventEmitter {
     }
     if (this.mcpConfigPath) {
       args.push("--mcp-config", this.mcpConfigPath, "--strict-mcp-config");
+    }
+    if (this.settingsPath) {
+      args.push("--settings", this.settingsPath);
     }
     return args;
   }
