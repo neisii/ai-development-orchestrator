@@ -261,12 +261,21 @@ Question/Answer 승인과 같은 패턴이다: `admin-cli`(`pause-agent`/`resume
 
 **결과**: `SESSION_START`/`SESSION_END` 6개씩, `TOOL_PRE`/`TOOL_POST` 7개씩, `QUESTION_CREATED`/`QUESTION_REVIEWED`/`ANSWER_CREATED`/`ANSWER_REVIEWED` 각 1개, `INTERVENTION` 5개(PAUSE 2 + RESUME 2 + STOP 1) — 9종 이벤트 타입 전부 기록됨. `list-agents`는 매 단계 정확한 상태(`RUNNING`/`PAUSED`/`COMPLETED`/`STOPPED`)를 반영했다.
 
-**미조사 관찰**: `TOOL_PRE`/`TOOL_POST`가 명시적으로 호출한 MCP 도구 수(전체 2회: `ask_agent` 1회, `answer_question` 1회)보다 훨씬 많은 7개씩 기록됐다. §11의 "일부 환경에서는 Bash 도구 호출이 자체 백그라운드 Task로 위임된다"는 관찰과 마찬가지로, 이 환경이 내부적으로 추가 도구 호출을 하는 것으로 보이나 원인은 조사하지 않았다. 우리 코드의 버그는 아니다(hook은 Claude Code가 실제로 발생시킨 이벤트를 그대로 기록했을 뿐).
+**후속 조사로 해소됨**: `TOOL_PRE`/`TOOL_POST`가 명시적으로 호출한 MCP 도구 수(전체 2회)보다 많은 7개씩 기록된 원인을, 남아있던 테스트 DB의 원본 `payload.tool_name`을 직접 조회해 확인했다. 각 `tool_use_id`가 `PreToolUse`/`PostToolUse`에 정확히 한 번씩만 나타나(중복 발동 아님, hook 배선에 버그 없음), 실제로 다음 도구들이 추가로 호출된 것이었다.
+
+| Agent | 도구 | 이유 |
+|---|---|---|
+| buyer-bff | `ToolSearch` ×1 | `ask_agent`가 이 환경에서 "지연 로딩" 도구라 호출 전 스키마 조회가 필요함 — 환경 자체의 정상 동작 |
+| buyer-bff | `mcp__orchestrator__ask_agent` ×1 | 우리가 시킴 |
+| api-agent | `Bash` ×3 | 우리가 시키지 않았는데, "ProductResponse에 재고 필드가 있어?"에 답하려고 실제로 프로젝트 디렉터리를 뒤져봄(비어 있어 결국 `INSUFFICIENT_CONTEXT`로 답변) — Agent가 추측 대신 실제로 확인부터 하려 한 정상 동작 |
+| api-agent | `ToolSearch` ×1 | `answer_question`도 지연 로딩 도구라 마찬가지 |
+| api-agent | `mcp__orchestrator__answer_question` ×1 | 우리가 시킴 |
+
+buyer-bff 2개 도구 × 2이벤트(PRE/POST) = 4, api-agent 5개 도구 × 2이벤트 = 10, 합계 14 = `TOOL_PRE` 7 + `TOOL_POST` 7로 정확히 일치. 우리 코드의 버그가 아니라는 게 확정됐다.
 
 ## 다음 단계
 
 `admin-cli.ts`가 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction 개입까지 모두 갖추고, 통합 테스트로 [mvp-scope.md](mvp-scope.md)의 완료 기준 7개가 전부 검증됐다. MVP 오케스트레이션 루프 자체는 완료된 상태다. 남은 정리 작업:
 
 - Agent 신원 자가 신고 한계(§12.3) — 진짜 신뢰 경계가 필요해지면 재검토
-- `TOOL_PRE`/`TOOL_POST` 개수가 예상보다 많은 원인(§12.7) — 필요시 조사
 - mvp-scope.md의 Phase 2 이후(Scribe Agent, Decision Record 등)로 진행할지 논의
