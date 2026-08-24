@@ -1,6 +1,6 @@
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { openDb } from "./db.js";
 import { QaStore } from "./qa-store.js";
 import { EventLogStore } from "./event-log.js";
@@ -18,7 +18,9 @@ import { Orchestrator } from "./orchestrator.js";
 // 이 스크립트를 끄고 `rm -rf .orchestrator`로 지운 뒤 다시 실행하면 된다.
 
 mkdirSync(".orchestrator", { recursive: true });
-const mcpConfigPath = ".orchestrator/mcp-config.json";
+// claude CLI는 --mcp-config 경로를 자기 cwd(Agent별 임시 작업 디렉터리) 기준으로 해석하므로
+// 반드시 절대 경로여야 한다. 상대 경로를 썼다가 "MCP config file not found"로 실패했었다.
+const mcpConfigPath = resolve(".orchestrator/mcp-config.json");
 const mcpServerPath = new URL("./mcp-server.ts", import.meta.url).pathname;
 
 writeFileSync(

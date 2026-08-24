@@ -129,6 +129,12 @@ export class ProcessManager extends EventEmitter {
     });
     this.child = child;
 
+    // 지금까지는 stderr를 아무도 안 읽어서, claude CLI 자체가 실패해도(잘못된 인자, 인증 문제 등)
+    // 원인이 전혀 안 보이고 FAILED만 찍혔다. Agent id를 붙여서 그대로 흘려보낸다.
+    child.stderr.on("data", (chunk: Buffer) => {
+      process.stderr.write(`[${this.id}] ${chunk}`);
+    });
+
     const rl = createInterface({ input: child.stdout });
     rl.on("line", (line) => {
       if (!line.trim()) return;
