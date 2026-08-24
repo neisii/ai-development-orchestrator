@@ -38,5 +38,6 @@ Phase 1(MVP 오케스트레이션 루프) + Phase 2(Scribe Agent/Decision Record
 - Hook 수신 서버 — Event Log 수집
 - `Orchestrator` — 승인된 질문/답변 자동 전달, Agent 상태 기록, Human Intervention 적용, 거절 사유가 있는 Question/Answer를 Scribe Agent에게 자동 위임
 - `admin-cli` — 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction, Decision Record 검토·승인
+- `run-demo`(`npm run demo`) — Human이 직접 손으로 개입해보는 인터랙티브 진입점 (사용법: [testing-guide.md](docs/testing-guide.md))
 
-mvp-scope.md의 MVP 완료 기준 7개와 Phase 2 흐름 모두 실제 `claude -p` 세션으로 검증됨(실측 기록은 architecture.md 참고). Scribe Agent는 `submit_decision_record` 도구 하나만 가질 수 있어 코드 수정이나 다른 Agent 지시가 구조적으로 불가능하다. 다음 단계는 mvp-scope.md의 Phase 3 이후를 참고. (Windows/macOS 우선 지원, Linux는 추후 고려)
+mvp-scope.md의 MVP 완료 기준 7개와 Phase 2 흐름 모두 실제 `claude -p` 세션으로 검증됨(실측 기록은 architecture.md 참고). Scribe Agent는 `submit_decision_record` 도구 하나만 가질 수 있어 코드 수정이나 다른 Agent 지시가 구조적으로 불가능하다. 아직 실제 프로젝트 경로에 연결하는 기능은 없어서(전부 빈 임시 디렉터리로 시연) 지금은 오케스트레이션 메커니즘 검증 단계다 — 미해결 항목과 다음 단계는 [backlog.md](docs/backlog.md) 참고. (Windows/macOS 우선 지원, Linux는 추후 고려)

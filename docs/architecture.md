@@ -314,6 +314,23 @@ Scribe를 실제로 실행해보다가 재현된 버그다. `isDeliverable()`에
 - **지금 조치**: `manual-test-scribe.ts`/`manual-test-scribe-answer.ts` 둘 다 로직이 끝나면 `process.exit(0)`을 명시적으로 호출하도록 고쳐서, 이 현상과 무관하게 테스트가 항상 깔끔하게 끝나게 했다. 검증하려던 실제 내용(Decision Record 생성·승인)은 이 현상과 무관하게 두 트리거 모두 이미 확인이 끝난 상태다.
 - **다시 볼 조건**: Phase 3 이후 Orchestrator를 실제로 오래 띄워두는 상황이 되면(지금은 매번 스크립트를 새로 실행하는 방식이라 노출이 잘 안 됨), 정말 미세한 누수가 쌓이는지 다시 살펴볼 가치가 있다.
 
+## 14. 인터랙티브 데모 (`src/run-demo.ts`)
+
+지금까지의 `manual-test-*.ts`는 전부 Human의 승인/거절/개입까지 스크립트가 대신 수행했다. `run-demo.ts`(`npm run demo`)는 처음으로 사람이 직접 손으로 조작해보는 진입점이다: Orchestrator + 3개 Agent(buyer-bff/api-agent/scribe-agent)를 띄워두고 계속 polling만 하며, 다른 터미널에서 `admin-cli`를 직접 입력해 개입하게 한다. DB는 `admin-cli`의 기본 경로(`.orchestrator/data.db`)를 그대로 써서 두 번째 터미널이 별도 설정 없이 같은 상태를 보게 했다. 사용법은 [testing-guide.md](testing-guide.md) 참고.
+
+### 14.1 실사용 중 발견한 버그 두 가지
+
+사람이 직접 처음 실행해보자마자 buyer-bff가 `STARTING` → `FAILED`로 즉시 실패했다.
+
+- **원인이 안 보였던 문제**: `ProcessManager`가 자식 프로세스의 stderr를 아예 읽지 않고 있었다. `claude` CLI가 어떤 이유로 실패하든(잘못된 인자, 인증 문제 등) 아무 단서도 안 남았다. `child.stderr`를 Agent id를 붙여 그대로 우리 stderr로 흘려보내도록 고쳤다.
+- **진짜 원인**: stderr를 살리자 `MCP config file not found`가 바로 보였다. `run-demo.ts`가 `--mcp-config` 경로를 `.orchestrator/mcp-config.json`처럼 **상대 경로**로 넘겼는데, `claude` CLI는 이 경로를 자기 자신의 cwd 기준으로 해석한다. `ProcessManager`가 Agent마다 `cwd`를 각자의 프로젝트 디렉터리로 바꿔서 실행하므로, 상대 경로가 엉뚱한 곳(Agent의 임시 작업 디렉터리)을 가리켜 파일을 못 찾은 것이었다. 다른 스크립트들은 전부 절대 경로를 써서 문제가 없었는데 이 스크립트만 상대 경로를 썼다. `resolve()`로 고쳤다.
+
+두 수정 모두 실제로 다시 실행해서 에러가 사라지고 프로세스가 정상 spawn되는 것까지 확인했다. 다만 그 뒤 질문이 실제로 생성되는 단계는 그날 세션의 API 사용량 제한으로 완전히 끝까지 확인하지 못했다 — 코드 문제가 아니라 사용량 문제로 판단.
+
+### 14.2 알려진 한계: 실제 프로젝트에 연결하는 창구가 없음
+
+`run-demo.ts`는 각 Agent의 `projectPath`를 `mkdtempSync`로 만든 빈 임시 디렉터리로 하드코딩한다. `AgentConfig.projectPath` 필드 자체는 있지만, 사용자가 "buyer-bff는 이 경로, api-agent는 저 경로"를 지정할 수 있는 CLI 인자나 설정 파일이 아직 없다 — 그래서 지금까지의 모든 시연에서 api-agent가 항상 "작업 디렉터리가 비어 있다"며 `INSUFFICIENT_CONTEXT`로 답했다. requirements.md가 원래 말하는 실제 대상(Data Serving API/Buyer BFF/Seller BFF 같은 진짜 프로젝트)에 붙이려면 이 기능이 필요하다. [backlog.md](backlog.md)에 기록.
+
 ## 다음 단계
 
-Phase 1(오케스트레이션 루프)과 Phase 2(Scribe Agent/Decision Record) 모두 실제 `claude -p` 세션으로 검증 완료됐다. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.
+Phase 1(오케스트레이션 루프)과 Phase 2(Scribe Agent/Decision Record) 모두 실제 `claude -p` 세션으로 검증 완료됐고, 인터랙티브 데모(§14)까지 갖췄다. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.
