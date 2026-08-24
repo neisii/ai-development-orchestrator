@@ -339,7 +339,7 @@ Scribe를 실제로 실행해보다가 재현된 버그다. `isDeliverable()`에
 
 설정 검증·경로 해석·`claude` 프로세스 spawn까지는 실제로 확인했다: 진짜 파일이 든 임시 디렉터리 두 개(예: `ProductResponse.java`에 `stockQuantity` 필드가 실제로 있는 파일)를 만들어 `orchestrator.config.json`으로 등록하고 `npm run start`로 띄운 뒤, `admin-cli resume-agent buyer-bff "..."`로 첫 지시를 내렸다. 프로세스 인자를 확인하니 `--mcp-config`/`--settings` 둘 다 정확한 절대 경로로 들어가 있었고(§14.1의 버그가 재발하지 않음), Agent도 정상적으로 `RUNNING`까지 도달했다.
 
-다만 "api-agent가 실제로 그 파일을 읽고 `stockQuantity` 필드를 찾아서 답하는지"까지의 전체 왕복은 이번에는 확인하지 못했다 — buyer-bff의 첫 `ask_agent` 호출 자체가 2분 30초 넘게 응답이 안 왔다(CPU 시간도 거의 안 늘어남, API 응답 대기 중인 패턴). 그날 세션에서 `claude -p`를 매우 많이 호출한 뒤였어서 사용량 제한으로 추정하며, 코드나 설정에 문제가 있다고 볼 근거는 없었다. [backlog.md](backlog.md)에 "부분 검증" 상태로 남겨뒀다.
+다만 "api-agent가 실제로 그 파일을 읽고 `stockQuantity` 필드를 찾아서 답하는지"까지의 전체 왕복은 두 번 시도했으나 둘 다 확인하지 못했다 — buyer-bff의 첫 `ask_agent` 호출 자체가 매번 2분 넘게 응답이 안 왔다(CPU 시간도 거의 안 늘어남, API 응답 대기 중인 패턴). 처음엔 사용량 제한으로 추정했지만, 두 번째 시도 때는 같은 세션에서 `claude -p "hi"`가 몇 초 안에 정상 응답했고 `lsof`로 확인한 네트워크 연결도 Anthropic API 서버에 정상적으로 맺혀 있어서, 순수 레이트리밋이라고 단정하긴 어렵다 — 도구 호출이 낀 세션에서만 반복적으로 느려지는 원인 불명의 지연으로 정리한다. 코드나 설정에 문제가 있다고 볼 근거는 없었다(인자 전부 정확, 프로세스 정상 spawn, 네트워크 연결도 정상). [backlog.md](backlog.md)에 "부분 검증" 상태로 남겨뒀다.
 
 ## 다음 단계
 
