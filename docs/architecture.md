@@ -220,7 +220,7 @@ Agent 상태(`ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등)는 오케스트�
 ### 12.3 알려진 한계 (§12.4에서 해결됨)
 
 - ~~**자동 전달 미구현**~~ → §12.4에서 해결.
-- **Agent 신원 자가 신고**: `from_agent_id`를 도구 호출 인자로 Agent 스스로 보고하게 했다(연결 자체로 신원을 강제하지 않음). Agent들이 모두 우리가 배포한 시스템 프롬프트/설정을 따른다는 전제하에는 MVP로 충분하지만, 진짜 신뢰 경계가 필요해지면 Agent별로 별도 HTTP 엔드포인트를 두는 등의 방식으로 바꿔야 한다.
+- **Agent 신원 자가 신고**: `from_agent_id`를 도구 호출 인자로 Agent 스스로 보고하게 했다(연결 자체로 신원을 강제하지 않음). Agent들이 모두 우리가 배포한 시스템 프롬프트/설정을 따른다는 전제하에는 MVP로 충분하지만, 진짜 신뢰 경계가 필요해지면 Agent별로 별도 HTTP 엔드포인트를 두는 등의 방식으로 바꿔야 한다. **해결 시점**: [mvp-scope.md Phase 4+](mvp-scope.md#phase-2-이후와의-관계)의 선행 조건으로 지정 — Agent가 3개 이상으로 늘거나 실제(스크래치가 아닌) 코드베이스/외부 콘텐츠를 다루기 시작하는 시점 중 더 이른 쪽에 해결한다.
 
 ## 12.4 `ProcessManager` ↔ `qa-store`/`mcp-server` 통합
 
@@ -277,5 +277,5 @@ buyer-bff 2개 도구 × 2이벤트(PRE/POST) = 4, api-agent 5개 도구 × 2이
 
 `admin-cli.ts`가 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction 개입까지 모두 갖추고, 통합 테스트로 [mvp-scope.md](mvp-scope.md)의 완료 기준 7개가 전부 검증됐다. MVP 오케스트레이션 루프 자체는 완료된 상태다. 남은 정리 작업:
 
-- Agent 신원 자가 신고 한계(§12.3) — 진짜 신뢰 경계가 필요해지면 재검토
+- Agent 신원 자가 신고 한계(§12.3) — Phase 4+ 선행 조건으로 지정됨, 지금 당장은 아님
 - mvp-scope.md의 Phase 2 이후(Scribe Agent, Decision Record 등)로 진행할지 논의
