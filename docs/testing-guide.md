@@ -1,0 +1,153 @@
+# 실 테스트 가이드
+
+지금까지 구현한 것을 직접 손으로 확인해보는 가이드다. "지켜보기"(자동 시나리오)와 "직접 개입하기"(인터랙티브 데모) 두 방식을 다룬다.
+
+## 사전 준비
+
+```bash
+npm install
+claude -p "hi"   # claude CLI가 로그인돼 있는지, 정상 응답이 오는지 먼저 확인
+```
+
+마지막 명령이 몇 초 안에 정상 응답하면 준비된 것이다. 응답이 비정상적으로 느리거나 안 오면(예: CPU 사용량이 거의 안 늘어난 채로 몇십 초씩 멈춰있음), 계정 사용량 제한(5시간 단위 rate limit)에 걸렸을 가능성이 크다 — 이 상태에서는 아래 시나리오들도 똑같이 멈춘다. 시간을 두고 다시 시도한다.
+
+## 1. 자동 시나리오로 빠르게 지켜보기
+
+Human 역할(승인/거절/개입)을 스크립트가 대신 수행하면서 전체 흐름을 보여준다. 실제 API 호출이 여러 번 일어나 몇 분씩 걸린다.
+
+```bash
+npm run manual-test:mvp-e2e        # mvp-scope.md 완료 기준 7개 전체 (약 5~6회 API 호출)
+npm run manual-test:scribe         # 질문 거절 -> Scribe 자동 기록 -> 승인
+npm run manual-test:scribe-answer  # 답변 거절 -> Scribe 자동 기록 -> 승인
+```
+
+`manual-test:mvp-e2e`를 실행하면 이런 식으로 진행된다(실제 실행 결과 일부):
+
+```
+========== Phase 1: api-agent Pause -> Resume -> Direct Instruction ==========
+[api-agent] lifecycle -> RUNNING
+>>> admin-cli pause-agent api-agent
+[api-agent] lifecycle -> PAUSED
+>>> admin-cli instruct-agent api-agent (Direct Instruction)
+[api-agent] lifecycle -> COMPLETED
+
+========== Phase 2: 전체 Q&A 왕복 ==========
+>>> 질문 도착: ProductResponse에 재고 수량 필드가 있어?
+>>> admin-cli decide-question approve
+>>> 답변 도착: ... (INSUFFICIENT_CONTEXT)
+>>> admin-cli decide-answer approve
+
+========== 기준 6: Event Log 타입별 집계 ==========
+  ANSWER_CREATED: 1
+  INTERVENTION: 5
+  QUESTION_CREATED: 1
+  ...
+```
+
+## 2. 직접 개입해보기 (인터랙티브 데모)
+
+### 터미널 1: 데모 실행 (계속 떠 있음)
+
+```bash
+npm run demo
+```
+
+buyer-bff가 자동으로 첫 질문을 던지고 나면, 이 터미널은 아무것도 안 하고 polling만 계속한다. `Ctrl+C`로 끌 때까지 그대로 둔다.
+
+### 터미널 2: 같은 프로젝트 디렉터리에서 admin-cli 조작
+
+**2-1. 질문 확인하고 승인/거절**
+
+```bash
+npm run admin -- list-agents        # 세 Agent(buyer-bff/api-agent/scribe-agent) 상태 확인
+npm run admin -- list-questions
+npm run admin -- decide-question <id> approve
+```
+
+승인하면 몇 초~십수 초 뒤 Orchestrator가 자동으로 api-agent를 깨워 질문을 전달한다. `list-agents`로 `api-agent`가 `STARTING` → `RUNNING`으로 바뀌는 걸 확인할 수 있다.
+
+**2-2. 답변 확인하고 승인/거절**
+
+```bash
+npm run admin -- list-answers
+npm run admin -- decide-answer <id> approve
+```
+
+승인하면 buyer-bff가 자동으로 재개돼 답변을 반영한 최종 응답을 낸다.
+
+**2-3. Decision Record 체험하기 (거절 + 사유)**
+
+질문이나 답변을 **사유를 달아서** 거절하면 Scribe Agent가 자동으로 깨어난다.
+
+```bash
+npm run admin -- decide-answer <id> reject "이미 API 스펙 문서에 나와있는 내용이라 재확인이 불필요함"
+```
+
+몇십 초 뒤:
+
+```bash
+npm run admin -- list-agents        # scribe-agent가 STARTING -> RUNNING -> COMPLETED로 바뀌는 걸 확인
+npm run admin -- list-decisions     # DRAFT 상태의 Decision Record 확인
+npm run admin -- show-decision <id> # 배경/문제/제약사항/선택지/선택지 비교/판단 근거/결론/결정 주체 전문 확인
+npm run admin -- decide-decision <id> approve
+```
+
+`show-decision`으로 보이는 내용은 실제로 이런 식이다(과거 실행에서 나온 예):
+
+```
+## 판단 근거
+API 스펙 문서 v2에 재고 필드가 이미 명시되어 있었으므로, api-agent에게 직접 질문하기
+전에 문서부터 확인했어야 한다는 것이 거절 사유다.
+
+## 결론
+buyer-bff의 질문은 거절되었다. 이미 API 스펙 문서 v2에 재고 필드가 명시되어 있으므로
+문서부터 확인했어야 한다.
+```
+
+**2-4. Pause / Resume / Stop / Direct Instruction 체험하기**
+
+Agent가 `RUNNING`일 때(긴 답변을 작성 중일 때가 확인하기 좋다) 다른 터미널에서:
+
+```bash
+npm run admin -- pause-agent api-agent
+npm run admin -- list-agents                              # PAUSED 확인
+npm run admin -- resume-agent api-agent "계속 진행해줘"
+npm run admin -- instruct-agent api-agent "그만 쓰고 짧게 요약만 해줘"   # Pause+Resume 조합
+npm run admin -- stop-agent buyer-bff                      # 완전 중단 (재개 안 함)
+```
+
+**2-5. 전체 이력 확인**
+
+```bash
+npm run admin -- list-events            # 전체 Event Log (시간순)
+npm run admin -- list-events buyer-bff  # 특정 Agent만
+npm run admin -- list-decisions --all   # DRAFT뿐 아니라 APPROVED/REJECTED까지
+```
+
+## 3. admin-cli 명령어 전체 목록
+
+| 명령 | 설명 |
+|---|---|
+| `list-questions` / `decide-question <id> approve\|reject [사유]` | 질문 조회/승인/거절 |
+| `list-answers` / `decide-answer <id> approve\|reject [사유]` | 답변 조회/승인/거절 |
+| `list-agents` | Agent 상태(Lifecycle State + Activity Label) |
+| `list-events [agentId]` | Event Log 조회 |
+| `pause-agent <id>` / `resume-agent <id> [prompt]` / `stop-agent <id>` | 개입 |
+| `instruct-agent <id> <prompt>` | Direct Instruction (Pause+Resume 조합) |
+| `list-decisions [--all]` / `show-decision <id>` / `decide-decision <id> approve\|reject [사유]` | Decision Record 조회/승인/거절 |
+
+## 4. 초기화
+
+데모 상태를 지우고 처음부터 다시 시작하려면:
+
+```bash
+# 터미널 1에서 Ctrl+C로 데모 종료 후
+rm -rf .orchestrator
+npm run demo
+```
+
+## 5. 문제 해결
+
+- **Agent가 `STARTING` 직후 바로 `FAILED`로 바뀐다**: 콘솔에 `[agent-id] ...` 형태로 원인이 같이 찍힌다(예: 잘못된 `--mcp-config` 경로, 인증 문제). 이 메시지를 보고 원인을 확인한다.
+- **한참 기다려도 질문/답변이 안 생긴다**: `ps aux | grep "claude -p"`로 프로세스가 살아있는지 확인한다. 살아있는데 CPU 시간이 거의 안 늘어나면 API 응답을 기다리는 중 — 계정 사용량 제한(5시간 rate limit)에 걸렸을 가능성이 크다. 시간을 두고 다시 시도한다.
+- **`npm run demo`를 두 번 동시에 띄웠다**: 같은 `.orchestrator/data.db`를 두 프로세스가 동시에 쓰면서 Agent 상태가 꼬인다. 하나를 반드시 끄고(`Ctrl+C` 또는 `pkill -f run-demo.ts`), `.orchestrator`를 지운 뒤 하나만 다시 띄운다.
