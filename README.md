@@ -23,7 +23,17 @@ Human-in-the-loop orchestration system for coordinating multiple AI agents acros
 - [요구사항 (requirements.md)](docs/requirements.md) — 프로젝트 목적, 운영 모델, Human/Agent 역할, 통신·질문/답변·Human Intervention·Scribe·Decision Record 규칙, 핵심 원칙
 - [핵심 개념 (glossary.md)](docs/glossary.md)
 - [MVP 범위 (mvp-scope.md)](docs/mvp-scope.md) — 1단계에서 검증할 최소 범위와 완료 기준
+- [아키텍처 (architecture.md)](docs/architecture.md) — Claude Code 헤드리스/hook/MCP를 조합한 오케스트레이터 설계, 실측 검증 기록
+- [데이터 모델 (data-model.md)](docs/data-model.md) — Agent/Question/Answer/Event Log/Intervention 스키마
 
 ## 현재 상태
 
-요구사항 정리 및 MVP 범위 정의 단계. MVP는 Scribe Agent/Decision Record를 제외하고 Orchestrator 중심의 Agent 실행·통신·Q&A·Intervention 루프를 CLI 환경에서 먼저 검증하는 것을 목표로 합니다. 구현 기술 스택과 상세 설계는 아직 확정되지 않았으며, 요구사항 충족·성능·운영 편의성 등을 기준으로 이후 단계에서 결정합니다. (Windows/macOS 우선 지원, Linux는 추후 고려)
+MVP 구현 및 실측 검증 완료. Node.js/TypeScript로 `src/`에 다음을 구현했다.
+
+- `ProcessManager` — Agent(Claude Code 헤드리스 세션) spawn/pause/resume/stop
+- MCP 서버(`ask_agent`/`answer_question`) — Agent 간 통신을 강제로 오케스트레이터 경유시킴
+- Hook 수신 서버 — Event Log 수집
+- `Orchestrator` — 승인된 질문/답변 자동 전달, Agent 상태 기록, Human Intervention 적용
+- `admin-cli` — 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction
+
+mvp-scope.md의 완료 기준 7개 모두 실제 `claude -p` 세션으로 검증됨(각 항목의 실측 기록은 architecture.md 참고). Scribe Agent/Decision Record는 계획대로 제외되어 있으며, 다음 단계는 mvp-scope.md의 Phase 2 이후를 참고. (Windows/macOS 우선 지원, Linux는 추후 고려)

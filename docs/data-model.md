@@ -168,22 +168,53 @@ Hook/MCP에서 실제로 오는 원시 이벤트를 그대로 보존한다. "파
 | `ANSWER_REVIEWED` | orchestrator | Human이 답변 승인/거절 |
 | `INTERVENTION` | orchestrator | Pause/Resume/Stop/Direct Instruction 발생 (`payload.kind`로 세분화) |
 
-## 6. 전체 관계
+## 6. Intervention
+
+§2~5의 Question/Answer/Event Log와 같은 "요청과 실행을 분리한다" 원칙을 여기서도 따른다. Human(또는 Human을 대신하는 CLI)이 남기는 건 개입 **요청**뿐이고, 이를 실제로 적용(`ProcessManager.pause()`/`resume()`/`stop()` 호출)하는 건 Orchestrator다 — Question/Answer가 Human 승인을 오케스트레이터가 대신 적용하는 것과 동일한 구조다.
+
+### 6.1 엔티티
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | string | |
+| `agentId` | string | 개입 대상 Agent |
+| `kind` | `InterventionKind` | §6.2 |
+| `prompt` | string \| null | `RESUME`에만 의미 있음. Direct Instruction의 지시 내용이 여기 담긴다 |
+| `requestedBy` | string | 요청한 Human |
+| `requestedAt` / `appliedAt` | datetime / datetime \| null | 요청 시각과 Orchestrator가 실제로 적용한 시각. `appliedAt`이 `null`이면 아직 대기 중 |
+
+### 6.2 Intervention Kind
+
+```
+PAUSE | RESUME | STOP
+```
+
+requirements.md §12는 Execution Control(Pause/Resume/Stop/Cancel)과 Direct Instruction을 구분하지만, 여기서는 **Direct Instruction을 별도 kind로 두지 않는다**. §5 Human Intervention 실현 방식(`SIGTERM`으로 턴을 끊고 `--resume` 시 새 지시를 프롬프트로 얹어 전달)을 그대로 따르면, Direct Instruction은 "`PAUSE` 요청 하나 + `prompt`가 있는 `RESUME` 요청 하나"의 조합과 동일하기 때문이다. Agent가 이미 한가하면 `PAUSE`는 아무 효과 없이 지나가고 `RESUME`만 적용된다.
+
+### 6.3 처리 순서
+
+Orchestrator는 미적용 상태(`appliedAt IS NULL`)인 Intervention을 `requestedAt` 순서로 폴링하며 처리한다. `RESUME`은 대상 Agent의 프로세스가 아직 살아있으면(예: 방금 보낸 `PAUSE`가 아직 반영되기 전) 이번 주기에는 건너뛰고 다음 주기에 재시도한다 — Question/Answer 전달과 같은 재시도 방식이다. 적용에 성공하면 `EVENT_LOG`에 `type: INTERVENTION`, `payload: { kind, prompt, requestedBy }`로 기록한다(§5.2).
+
+## 7. 전체 관계
 
 ```mermaid
 erDiagram
     AGENT ||--o{ EVENT_LOG : generates
     AGENT ||--o{ QUESTION : "asks (fromAgentId)"
     AGENT ||--o{ QUESTION : "receives (toAgentId)"
+    AGENT ||--o{ INTERVENTION : "target of"
     QUESTION ||--o{ ANSWER : "answered by"
     QUESTION ||--o{ EVENT_LOG : "referenced by"
     ANSWER ||--o{ EVENT_LOG : "referenced by"
+    INTERVENTION ||--o{ EVENT_LOG : "referenced by"
 ```
 
-## 7. 저장소 (권장)
+## 8. 저장소 (권장)
 
-오케스트레이터가 유일한 writer이고 동시 접근 문제가 없으므로, MVP에서는 단일 SQLite 파일(예: `better-sqlite3`)을 권장한다. 스키마 변경이 잦은 초기 단계라 마이그레이션 도구 없이 시작하고, 필요해지면 추가한다. 이 결정은 낮은 리스크의 구현 세부사항이라 언제든 JSON Lines 등으로 바꿔도 무방하다.
+MVP에서는 단일 SQLite 파일(예: `better-sqlite3`)을 권장한다. 스키마 변경이 잦은 초기 단계라 마이그레이션 도구 없이 시작하고, 필요해지면 추가한다. 이 결정은 낮은 리스크의 구현 세부사항이라 언제든 JSON Lines 등으로 바꿔도 무방하다.
 
-## 다음 단계
+**실제로는 "오케스트레이터가 유일한 writer"가 아니다**: Agent마다 뜨는 MCP 서버(`ask_agent`/`answer_question`) 프로세스 여러 개가 같은 SQLite 파일에 동시에 쓴다. SQLite의 파일 잠금으로 처리되며, 자세한 내용과 이유는 [architecture.md §12.1](architecture.md#121-설계-변경-mcp-서버를-여러-stdio-인스턴스--공유-sqlite로-구현) 참고.
 
-이 스키마를 기준으로 Orchestrator의 실제 구현(Process Manager, Hook 수신 서버, MCP 서버, CLI)에 착수할 수 있다.
+## 구현 현황
+
+이 스키마 그대로 `src/`에 구현되어 실제 `claude -p` 세션으로 검증됐다. 상세 내용과 실측 기록은 [architecture.md](architecture.md) §12 이하 참고.

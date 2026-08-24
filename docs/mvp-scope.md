@@ -34,15 +34,17 @@ Human이 최소 2개의 독립 프로젝트를 각각 담당하는 Project Agent
 
 ## 완료 기준 (Definition of Done)
 
-다음 시나리오가 실제로 동작하면 MVP를 완료로 간주한다.
+다음 시나리오가 실제로 동작하면 MVP를 완료로 간주한다. **전 항목 실제 `claude -p` 세션으로 검증 완료** — 각 항목의 실측 기록은 [architecture.md](architecture.md)의 해당 섹션을 참고.
 
-1. API Agent, Buyer BFF Agent 2개를 Orchestrator가 각각 독립된 세션으로 실행할 수 있다.
-2. Buyer BFF Agent가 정보 부족을 인지 → Question 생성 → Eligibility Check 통과 → Human이 터미널에서 승인/거절할 수 있다.
-3. 승인된 질문이 API Agent에게 전달되고, API Agent가 Answer Eligibility Check를 거쳐 답변 상태(`ANSWERABLE` 등)와 함께 답변한다. 답변이 Human Review를 거친 뒤 Buyer BFF Agent에게 전달된다.
-4. Human이 임의 시점에 특정 Agent를 Pause / Resume / Stop 할 수 있다.
-5. Human이 특정 Agent에게 Direct Instruction을 전달하면 해당 Agent의 다음 행동에 즉시 반영된다.
-6. 위 모든 이벤트가 Event Log에 시간순으로 기록되고 터미널에서 확인 가능하다.
-7. 각 Agent의 현재 상태(`ANALYZING` / `IMPLEMENTING` / `WAITING_APPROVAL` 등)가 실시간으로 표시된다.
+1. ✅ API Agent, Buyer BFF Agent 2개를 Orchestrator가 각각 독립된 세션으로 실행할 수 있다. (architecture.md §12.4)
+2. ✅ Buyer BFF Agent가 정보 부족을 인지 → Question 생성 → Eligibility Check 통과 → Human이 터미널에서 승인/거절할 수 있다. (architecture.md §12.4)
+3. ✅ 승인된 질문이 API Agent에게 전달되고, API Agent가 Answer Eligibility Check를 거쳐 답변 상태(`ANSWERABLE` 등)와 함께 답변한다. 답변이 Human Review를 거친 뒤 Buyer BFF Agent에게 전달된다. (architecture.md §12.4)
+4. ✅ Human이 임의 시점에 특정 Agent를 Pause / Resume / Stop 할 수 있다. (architecture.md §12.6)
+5. ✅ Human이 특정 Agent에게 Direct Instruction을 전달하면 해당 Agent의 다음 행동에 즉시 반영된다. (architecture.md §12.6 — `PAUSE`+프롬프트가 있는 `RESUME` 조합으로 구현)
+6. ✅ 위 모든 이벤트가 Event Log에 시간순으로 기록되고 터미널에서 확인 가능하다. ([§6.1](architecture.md#61-구현-및-실측-검증), `admin-cli list-events`)
+7. ✅ 각 Agent의 현재 상태가 실시간으로 표시된다. ([§12.5](architecture.md#125-agent-상태-cli-14-대응-mvp-scopemd-완료-기준-충족), `admin-cli list-agents`)
+
+   **원안과의 차이**: `ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등 requirements.md §14의 단일 enum을 그대로 표시하는 대신, [data-model.md §2.2~2.3](data-model.md#22-lifecycle-state-신뢰-가능-오케스트레이터-동작을-결정)에서 신뢰 가능한 Lifecycle State(7개)와 조회 시점에 계산되는 참고용 Activity Label(`ANALYZING`/`IMPLEMENTING`/`TESTING`)로 분리했다. 도구 호출만으로 `ANALYZING`과 `IMPLEMENTING`을 구분하는 게 본질적으로 휴리스틱이라 오케스트레이터 동작(승인 대기 여부 등)의 근거로 쓰기엔 신뢰도가 낮다고 판단한 의도적 이탈이며, "실시간으로 상태를 확인할 수 있다"는 완료 기준의 취지 자체는 충족한다.
 
 ## Phase 2 이후와의 관계
 
