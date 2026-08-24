@@ -4,6 +4,7 @@ import { z } from "zod";
 import { openDb } from "./db.js";
 import { QaStore } from "./qa-store.js";
 import { EventLogStore } from "./event-log.js";
+import { DecisionRecordStore } from "./decision-record-store.js";
 import { ANSWER_CONTENT_STATUSES } from "./types.js";
 
 // docs/architecture.md §3, §7, §12.4 / docs/data-model.md §3~5 참고.
@@ -18,7 +19,9 @@ import { ANSWER_CONTENT_STATUSES } from "./types.js";
 // src/orchestrator.ts가 별도로 폴링하며 수행한다.
 
 const db = openDb();
-const store = new QaStore(db, new EventLogStore(db));
+const eventLog = new EventLogStore(db);
+const store = new QaStore(db, eventLog);
+const decisionRecords = new DecisionRecordStore(db, eventLog);
 
 const server = new McpServer({ name: "orchestrator", version: "0.1.0" });
 
@@ -116,6 +119,56 @@ server.registerTool(
         {
           type: "text" as const,
           text: `답변이 승인되었습니다 (answer_id: ${decided.id}). 질문한 Agent에게 전달될 예정입니다.`,
+        },
+      ],
+    };
+  }
+);
+
+server.registerTool(
+  "submit_decision_record",
+  {
+    title: "Submit a Decision Record",
+    description:
+      "의사결정 기록을 하나 제출한다(requirements.md §15~17, §19). 오직 Orchestrator가 이미 전달한 " +
+      "Decision Context(질문/답변 원문, 거절 사유 등)를 사람이 이해할 수 있는 글로 정리하는 용도이며, " +
+      "기술적·설계적 판단을 새로 내리거나 Agent에게 구현을 지시하는 데 쓰지 않는다. " +
+      "제출한 기록은 DRAFT 상태로 저장되고 Human이 별도로 승인/거절한다 — 이 도구는 응답을 기다리지 않고 바로 끝난다.",
+    inputSchema: {
+      trigger_type: z.enum(["QUESTION_REJECTED", "ANSWER_REJECTED"]).describe("이 기록을 촉발한 이벤트 종류"),
+      trigger_question_id: z.string().nullable().describe("트리거가 질문 거절이면 그 question_id, 아니면 null"),
+      trigger_answer_id: z.string().nullable().describe("트리거가 답변 거절이면 그 answer_id, 아니면 null"),
+      background: z.string().describe("왜 이 결정이 필요하게 되었는가"),
+      problem: z.string().describe("무엇을 해결해야 했는가"),
+      constraints: z.string().describe("결정에 영향을 미치는 기존 구조나 요구사항"),
+      options: z.string().describe("검토된 대안들"),
+      options_comparison: z.string().describe("각 대안의 장단점/영향/비용/위험 비교"),
+      rationale: z.string().describe("왜 특정 선택지를 선택하거나 제외했는가"),
+      conclusion: z.string().describe("무엇을 결정했는가"),
+      decision_maker: z.string().describe("누가 최종 결정했는가 (거절한 Human)"),
+      related_info: z.string().nullable().describe("관련 요구사항/프로젝트/코드 등의 참고 정보, 없으면 null"),
+    },
+  },
+  async (input) => {
+    const record = decisionRecords.create({
+      triggerType: input.trigger_type,
+      triggerQuestionId: input.trigger_question_id,
+      triggerAnswerId: input.trigger_answer_id,
+      background: input.background,
+      problem: input.problem,
+      constraints: input.constraints,
+      options: input.options,
+      optionsComparison: input.options_comparison,
+      rationale: input.rationale,
+      conclusion: input.conclusion,
+      decisionMaker: input.decision_maker,
+      relatedInfo: input.related_info,
+    });
+    return {
+      content: [
+        {
+          type: "text" as const,
+          text: `Decision Record가 초안으로 저장되었습니다 (decision_record_id: ${record.id}). Human 승인을 기다립니다.`,
         },
       ],
     };

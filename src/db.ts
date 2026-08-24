@@ -72,6 +72,27 @@ export function openDb(path: string = process.env.ORCHESTRATOR_DB_PATH ?? DEFAUL
       appliedAt TEXT
     );
     CREATE INDEX IF NOT EXISTS idx_interventions_pending ON interventions (appliedAt, requestedAt);
+
+    CREATE TABLE IF NOT EXISTS decision_records (
+      id TEXT PRIMARY KEY,
+      triggerType TEXT NOT NULL,
+      triggerQuestionId TEXT,
+      triggerAnswerId TEXT,
+      background TEXT NOT NULL,
+      problem TEXT NOT NULL,
+      constraints TEXT NOT NULL,
+      options TEXT NOT NULL,
+      optionsComparison TEXT NOT NULL,
+      rationale TEXT NOT NULL,
+      conclusion TEXT NOT NULL,
+      decisionMaker TEXT NOT NULL,
+      relatedInfo TEXT,
+      status TEXT NOT NULL,
+      humanReviewer TEXT,
+      reviewReason TEXT,
+      createdAt TEXT NOT NULL,
+      reviewedAt TEXT
+    );
   `);
   return db;
 }

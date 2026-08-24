@@ -6,6 +6,7 @@ import { QaStore } from "./qa-store.js";
 import { EventLogStore } from "./event-log.js";
 import { AgentStore } from "./agent-store.js";
 import { InterventionStore } from "./intervention-store.js";
+import { DecisionRecordStore } from "./decision-record-store.js";
 import { ProcessManager } from "./process-manager.js";
 import { Orchestrator } from "./orchestrator.js";
 
@@ -37,7 +38,14 @@ console.log("workDir:", workDir);
 const db = openDb(dbPath);
 const eventLog = new EventLogStore(db);
 const store = new QaStore(db, eventLog);
-const orchestrator = new Orchestrator(store, new AgentStore(db), eventLog, new InterventionStore(db), 2000);
+const orchestrator = new Orchestrator(
+  store,
+  new AgentStore(db),
+  eventLog,
+  new InterventionStore(db),
+  new DecisionRecordStore(db, eventLog),
+  2000
+);
 
 function makeAgent(id: string, tool: "ask_agent" | "answer_question"): ProcessManager {
   const projectPath = mkdtempSync(join(tmpdir(), `ado-orchestrator-${id}-`));

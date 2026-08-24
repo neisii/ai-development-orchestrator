@@ -50,7 +50,7 @@ Human이 최소 2개의 독립 프로젝트를 각각 담당하는 Project Agent
 
 MVP가 검증되면 다음 순서로 확장한다.
 
-- **Phase 2**: Scribe Agent 도입, 최소 Decision Record(배경/문제/선택지/결정/근거) 기록
+- **Phase 2 (완료)**: Scribe Agent 도입, 최소 Decision Record(배경/문제/선택지/결정/근거) 기록. 실제 `claude -p` 세션으로 검증됨 — [architecture.md §13](architecture.md#13-phase-2-scribe-agent와-decision-record) 참고.
 - **Phase 3**: Decision Context 공식화, Decision History 재활용, Code ↔ Decision Record 추적성
 - **Phase 4+**: 3개 이상 프로젝트 확장, Linux 지원 검토. 인터페이스 고도화(웹 UI 등)는 requirements.md §3의 기술 선택 기준(성능·리소스 효율 포함)에 따라 그 시점에 별도로 판단한다.
 

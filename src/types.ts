@@ -120,7 +120,9 @@ export type EventType =
   | "QUESTION_REVIEWED"
   | "ANSWER_CREATED"
   | "ANSWER_REVIEWED"
-  | "INTERVENTION";
+  | "INTERVENTION"
+  | "DECISION_RECORD_CREATED"
+  | "DECISION_RECORD_REVIEWED";
 
 export type EventSource = "hook" | "mcp" | "orchestrator";
 
@@ -134,4 +136,31 @@ export interface EventLogEntry {
   payload: unknown;
   relatedQuestionId: string | null;
   relatedAnswerId: string | null;
+}
+
+// docs/data-model.md §7 참고 (Phase 2: Decision Record)
+
+export type DecisionRecordTriggerType = "QUESTION_REJECTED" | "ANSWER_REJECTED";
+
+export type DecisionRecordStatus = "DRAFT" | "APPROVED" | "REJECTED";
+
+export interface DecisionRecord {
+  id: string;
+  triggerType: DecisionRecordTriggerType;
+  triggerQuestionId: string | null;
+  triggerAnswerId: string | null;
+  background: string;
+  problem: string;
+  constraints: string;
+  options: string;
+  optionsComparison: string;
+  rationale: string;
+  conclusion: string;
+  decisionMaker: string;
+  relatedInfo: string | null;
+  status: DecisionRecordStatus;
+  humanReviewer: string | null;
+  reviewReason: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
 }

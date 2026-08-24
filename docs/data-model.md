@@ -1,6 +1,6 @@
 # 데이터 모델 설계
 
-[architecture.md](architecture.md)에서 정의한 구성 요소(Process Manager, Hook 수신 서버, MCP 서버, Event Log Store)가 실제로 다루는 데이터의 스키마를 정의한다. [mvp-scope.md](mvp-scope.md) 범위에 따라 Scribe Agent / Decision Record는 포함하지 않는다.
+[architecture.md](architecture.md)에서 정의한 구성 요소(Process Manager, Hook 수신 서버, MCP 서버, Event Log Store)가 실제로 다루는 데이터의 스키마를 정의한다. §2~6은 Phase 1(MVP) 범위, §7(Decision Record)은 Phase 2 범위다.
 
 ## 1. 설계 원칙: 원시 데이터와 파생 표시를 분리한다
 
@@ -167,6 +167,8 @@ Hook/MCP에서 실제로 오는 원시 이벤트를 그대로 보존한다. "파
 | `ANSWER_CREATED` | mcp | `answer_question` 호출 |
 | `ANSWER_REVIEWED` | orchestrator | Human이 답변 승인/거절 |
 | `INTERVENTION` | orchestrator | Pause/Resume/Stop/Direct Instruction 발생 (`payload.kind`로 세분화) |
+| `DECISION_RECORD_CREATED` | mcp | Scribe Agent가 `submit_decision_record` 호출 (§7) |
+| `DECISION_RECORD_REVIEWED` | orchestrator | Human이 Decision Record 승인/거절 (§7) |
 
 ## 6. Intervention
 
@@ -195,7 +197,61 @@ requirements.md §12는 Execution Control(Pause/Resume/Stop/Cancel)과 Direct In
 
 Orchestrator는 미적용 상태(`appliedAt IS NULL`)인 Intervention을 `requestedAt` 순서로 폴링하며 처리한다. `RESUME`은 대상 Agent의 프로세스가 아직 살아있으면(예: 방금 보낸 `PAUSE`가 아직 반영되기 전) 이번 주기에는 건너뛰고 다음 주기에 재시도한다 — Question/Answer 전달과 같은 재시도 방식이다. 적용에 성공하면 `EVENT_LOG`에 `type: INTERVENTION`, `payload: { kind, prompt, requestedBy }`로 기록한다(§5.2).
 
-## 7. 전체 관계
+## 7. Decision Record (Phase 2)
+
+requirements.md §15~20 참고. §3~6까지의 모든 엔티티와 같은 "요청/초안 → Human 승인 → 확정" 패턴을 그대로 따른다: Question/Answer 거절(사유 포함)이 자동으로 Scribe Agent를 깨우는 트리거가 되고, Scribe가 초안을 작성하면 Human이 승인해야 확정된다.
+
+### 7.1 엔티티
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | string | |
+| `triggerType` | `"QUESTION_REJECTED" \| "ANSWER_REJECTED"` | §7.2 |
+| `triggerQuestionId` / `triggerAnswerId` | string \| null | 트리거가 된 Question/Answer |
+| `background` | string | §17 "배경" |
+| `problem` | string | §17 "문제" |
+| `constraints` | string | §17 "제약사항" |
+| `options` | string | §17 "선택지" |
+| `optionsComparison` | string | §17 "선택지 비교" |
+| `rationale` | string | §17 "판단 근거" |
+| `conclusion` | string | §17 "결론" |
+| `decisionMaker` | string | §17 "결정 주체" — 트리거가 된 Question/Answer의 `humanReviewer` |
+| `relatedInfo` | string \| null | §17 "관련 정보" |
+| `status` | `DecisionRecordStatus` | §7.3 |
+| `humanReviewer` / `reviewReason` | string \| null | Human 승인/거절 시 |
+| `createdAt` / `reviewedAt` | datetime | |
+
+`background`~`relatedInfo`는 구조화된 하위 필드 대신 자유 서술(텍스트/마크다운)로 저장한다. Scribe(LLM)에게 고정 스키마의 선택지 비교표 같은 걸 강제하는 것보다, §15 "사람이 이해할 수 있는 기록"이라는 목적에 맞게 자연스러운 글로 쓰게 하는 편이 낫다고 판단했다.
+
+### 7.2 트리거 (자동, 범위를 좁게 잡음)
+
+Orchestrator가 폴링하며 다음을 감지한다.
+
+- `Question.status = REJECTED` AND `reviewReason IS NOT NULL` AND 아직 이 Question을 트리거로 하는 Decision Record가 없음
+- `Answer.reviewStatus = REJECTED` AND `reviewReason IS NOT NULL` AND 아직 없음
+
+**Direct Instruction 등 다른 이벤트는 트리거로 삼지 않는다.** Agent 상태(§2.2~2.3)에서 이미 적용한 원칙과 같다: "사유가 실제로 딸려오는 이벤트"만 기계적으로 신뢰할 수 있는 트리거이고, 그 밖의 이벤트를 전부 자동 트리거로 삼으면(예: 모든 Direct Instruction) "그냥 계속해" 같은 일상적 지시까지 의사결정으로 오인될 잡음 위험이 크다.
+
+감지되면 Scribe Agent에게 Decision Context(§18)를 프롬프트로 구성해 전달한다: Question/Answer 원문, `selfJustification`/`contentStatus`, `reviewReason`, `reviewer`.
+
+### 7.3 Status
+
+```mermaid
+stateDiagram-v2
+    [*] --> DRAFT: submit_decision_record 호출
+    DRAFT --> APPROVED: Human 승인
+    DRAFT --> REJECTED: Human 거절
+    APPROVED --> [*]
+    REJECTED --> [*]
+```
+
+Question/Answer와 달리 `submit_decision_record` 호출은 Human 결정을 기다리며 보류하지 않는다 — Scribe에게 돌려줄 "답"이 없고 단지 기록을 남기는 일방적 제출이라, 도구는 곧바로 성공 응답을 반환하고 Scribe의 턴이 끝난다. Human은 이후 `admin-cli`로 별도 조회·승인한다.
+
+### 7.4 Scribe Agent의 도구 제약 (§19 강제)
+
+Scribe Agent용 `ProcessManager`에는 `allowedTools`로 `submit_decision_record` 단 하나만 준다. `Bash`/`Edit`/`Write`/`ask_agent` 등은 애초에 주어지지 않으므로 "Scribe가 코드를 고치거나 다른 Agent에게 구현을 지시하는" 시나리오 자체가 구조적으로 불가능하다 — §19 "Scribe는 결정하지 않는다"를 프롬프트 지시가 아니라 도구 권한으로 강제한다.
+
+## 8. 전체 관계
 
 ```mermaid
 erDiagram
@@ -207,9 +263,11 @@ erDiagram
     QUESTION ||--o{ EVENT_LOG : "referenced by"
     ANSWER ||--o{ EVENT_LOG : "referenced by"
     INTERVENTION ||--o{ EVENT_LOG : "referenced by"
+    QUESTION ||--o| DECISION_RECORD : "triggers (rejected)"
+    ANSWER ||--o| DECISION_RECORD : "triggers (rejected)"
 ```
 
-## 8. 저장소 (권장)
+## 9. 저장소 (권장)
 
 MVP에서는 단일 SQLite 파일(예: `better-sqlite3`)을 권장한다. 스키마 변경이 잦은 초기 단계라 마이그레이션 도구 없이 시작하고, 필요해지면 추가한다. 이 결정은 낮은 리스크의 구현 세부사항이라 언제든 JSON Lines 등으로 바꿔도 무방하다.
 

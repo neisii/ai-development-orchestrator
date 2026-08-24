@@ -273,9 +273,37 @@ Question/Answer 승인과 같은 패턴이다: `admin-cli`(`pause-agent`/`resume
 
 buyer-bff 2개 도구 × 2이벤트(PRE/POST) = 4, api-agent 5개 도구 × 2이벤트 = 10, 합계 14 = `TOOL_PRE` 7 + `TOOL_POST` 7로 정확히 일치. 우리 코드의 버그가 아니라는 게 확정됐다.
 
+## 13. Phase 2: Scribe Agent와 Decision Record
+
+requirements.md §15~20, [data-model.md §7](data-model.md#7-decision-record-phase-2) 참고. MVP 오케스트레이션 루프(Phase 1) 위에 "의사결정 기록" 레이어를 얹었다.
+
+### 13.1 설계 요약
+
+- **트리거는 자동, 범위는 좁게**: Question/Answer가 **사유(reason)를 동반한 거절** 상태가 되면 자동으로 트리거된다. Direct Instruction 등 다른 이벤트는 트리거로 삼지 않았다 — Agent 상태(§7)에서 이미 적용한 "기계적으로 신뢰 가능한 신호만 쓴다"는 원칙을 여기서도 따른 것이다.
+- **초안 → Human 승인**: Scribe가 `submit_decision_record`를 호출하면 즉시 `DRAFT`로 저장될 뿐 확정되지 않는다. Question/Answer/Intervention과 동일하게 Human이 `admin-cli`로 최종 승인해야 한다.
+- **Scribe의 권한을 프롬프트가 아니라 도구 목록으로 제한**: Scribe Agent용 `ProcessManager`에는 `allowedTools`로 `mcp__orchestrator__submit_decision_record` 단 하나만 준다. `Bash`/`Edit`/`Write`/`ask_agent` 등은 애초에 주어지지 않으므로 "Scribe가 코드를 고치거나 다른 Agent에게 지시하는" 시나리오 자체가 구조적으로 불가능하다 — requirements.md §19 "Scribe는 결정하지 않는다"를 프롬프트 지시가 아니라 권한으로 강제한 것이다.
+- **Orchestrator가 Decision Context를 큐레이션**: requirements.md §20대로, Scribe가 Event Log 전체를 뒤져 스스로 인과관계를 추측하게 하지 않는다. `Orchestrator.buildQuestionDecisionPrompt()`/`buildAnswerDecisionPrompt()`가 거절된 Question/Answer의 원문·자체 근거·거절 사유·거절한 Human만 정확히 골라 프롬프트로 넘긴다.
+
+### 13.2 버그와 수정: `isDeliverable()`의 잘못된 지름길
+
+Scribe를 실제로 실행해보다가 재현된 버그다. `isDeliverable()`에 있던 "`sessionId === null`이면 무조건 배포 가능"이라는 지름길이, `start()` 직후 `STARTING` 상태에서 아직 `session_id`가 도착하기 전(비동기로 몇백 ms~1초 정도 걸림)에도 참을 반환해버렸다. Question/Answer 전달 경로에서는 상태가 즉시 바뀌어(`markQuestionDelivered` 등) 같은 트리거가 다음 tick에 재조회되지 않아 이 버그가 드러나지 않았지만, Decision Record 트리거는 Scribe가 실제로 `submit_decision_record`를 호출할 때까지(초 단위로 걸림) 같은 거절 건이 계속 "아직 기록 안 됨"으로 재조회되는 구조라, 두 번째 tick에서 이미 `STARTING` 중인 Scribe에게 또 `start()`를 호출해 `"Agent scribe-agent already has a running process"` 에러로 즉시 드러났다.
+
+원인을 보면 애초에 이 지름길은 불필요했다: `ProcessManager`의 초기 `lifecycleState`가 이미 `"STOPPED"`(busy 상태 목록에 없음)라서, 한 번도 시작 안 한 Agent도 `lifecycleState`만으로 정확히 "배포 가능"으로 판별된다. 지름길을 제거하고 `lifecycleState` 하나만 보도록 고쳤다(`canApplyResume()`도 동일하게 정리).
+
+### 13.3 실측 검증
+
+`src/manual-test-scribe.ts`로 실제 `claude -p` 세션 두 개(buyer-bff, scribe-agent)로 전체 흐름을 확인했다.
+
+1. buyer-bff가 `ask_agent`로 질문
+2. `admin-cli decide-question reject "이미 API 스펙 문서 v2에 재고 필드가 명시돼 있음..."`
+3. Orchestrator가 다음 tick에서 자동으로 scribe-agent를 `start()` — Human이 따로 깨울 필요 없음
+4. scribe-agent가 `submit_decision_record`를 정확히 한 번 호출, requirements.md §17의 9개 필드(배경/문제/제약사항/선택지/선택지 비교/판단 근거/결론/결정 주체/관련 정보)를 전부 채운 자연스러운 글로 작성 — 특히 "선택지 비교"에서 "이미 문서화된 정보를 다시 확인하는 절차가 중복된다"처럼, 주어진 사실을 넘어서는 창작 없이 딱 거절 사유에 근거한 서술만 냈다
+5. `admin-cli list-decisions` / `show-decision`으로 초안 확인 → `admin-cli decide-decision approve` → `APPROVED`로 확정
+
 ## 다음 단계
 
-`admin-cli.ts`가 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction 개입까지 모두 갖추고, 통합 테스트로 [mvp-scope.md](mvp-scope.md)의 완료 기준 7개가 전부 검증됐다. MVP 오케스트레이션 루프 자체는 완료된 상태다. 남은 정리 작업:
+Phase 1(오케스트레이션 루프)과 Phase 2(Scribe Agent/Decision Record) 모두 실제 `claude -p` 세션으로 검증 완료됐다. 남은 것:
 
 - Agent 신원 자가 신고 한계(§12.3) — Phase 4+ 선행 조건으로 지정됨, 지금 당장은 아님
-- mvp-scope.md의 Phase 2 이후(Scribe Agent, Decision Record 등)로 진행할지 논의
+- Answer 거절 트리거(`ANSWER_REJECTED`) 경로는 코드는 Question과 대칭으로 구현했지만 실행 검증은 아직 안 함
+- mvp-scope.md의 Phase 3(Decision Context 공식화, Decision History 재활용, Code ↔ Decision Record 추적성)으로 진행할지 논의

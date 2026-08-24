@@ -3,6 +3,8 @@ import type { QaStore } from "./qa-store.js";
 import type { AgentStore } from "./agent-store.js";
 import type { EventLogStore } from "./event-log.js";
 import type { InterventionStore } from "./intervention-store.js";
+import type { DecisionRecordStore } from "./decision-record-store.js";
+import type { Answer, Question } from "./types.js";
 
 // docs/architecture.md "다음 단계"에서 남긴 통합 작업: 승인된 Question/Answer를 실제로
 // 대상 Agent에게 전달(resume)한다.
@@ -21,18 +23,27 @@ const PROCESS_ACTIVE_STATES = new Set(["STARTING", "RUNNING", "WAITING_APPROVAL"
 
 export class Orchestrator {
   private readonly agents = new Map<string, ProcessManager>();
+  private scribe: ProcessManager | undefined;
 
   constructor(
     private readonly store: QaStore,
     private readonly agentStore: AgentStore,
     private readonly eventLog: EventLogStore,
     private readonly interventionStore: InterventionStore,
+    private readonly decisionRecords: DecisionRecordStore,
     private readonly pollIntervalMs = 2000
   ) {}
 
   /** 등록과 동시에, 이후 모든 lifecycle 변화를 agentStore(§2)에 기록하도록 구독한다. */
   registerAgent(pm: ProcessManager): void {
     this.agents.set(pm.id, pm);
+    this.persistState(pm);
+    pm.on("lifecycle-change", () => this.persistState(pm));
+  }
+
+  /** data-model.md §7: Scribe는 Project Agent 목록(agents)과 분리해서, Q&A 전달 대상으로 잡히지 않게 한다. */
+  registerScribe(pm: ProcessManager): void {
+    this.scribe = pm;
     this.persistState(pm);
     pm.on("lifecycle-change", () => this.persistState(pm));
   }
@@ -57,6 +68,7 @@ export class Orchestrator {
     this.deliverApprovedQuestions();
     this.deliverApprovedAnswers();
     this.processInterventions();
+    this.triggerDecisionRecords();
   }
 
   startPolling(): NodeJS.Timeout {
@@ -64,16 +76,17 @@ export class Orchestrator {
   }
 
   private isDeliverable(pm: ProcessManager): boolean {
-    const state = pm.getState();
-    if (state.sessionId === null) return true; // 아직 한 번도 시작 안 함 -> start()로 전달
-    return !BUSY_STATES.has(state.lifecycleState); // 세션은 있지만 지금 바쁘지 않음 -> resume()으로 전달
+    // ProcessManager의 초기값이 이미 "STOPPED"(BUSY_STATES에 없음)이라, 한 번도 시작 안 한
+    // Agent도 lifecycleState만으로 정확히 판별된다. 예전에는 `sessionId === null`이면 무조건
+    // deliverable로 보는 지름길이 있었는데, start() 직후 STARTING 상태에서 session_id가 아직
+    // 안 왔을 때도 이 지름길이 true를 반환해버려서 "이미 실행 중인데 또 start()를 호출"하는
+    // 버그가 났다(§7.2 Scribe 트리거로 실행해서 실제로 재현/발견됨). lifecycleState 하나만 본다.
+    return !BUSY_STATES.has(pm.getState().lifecycleState);
   }
 
   /** RESUME 개입 전용: PAUSED는 "재개해야 할 상태"이지 "바쁜 상태"가 아니다. */
   private canApplyResume(pm: ProcessManager): boolean {
-    const state = pm.getState();
-    if (state.sessionId === null) return true;
-    return !PROCESS_ACTIVE_STATES.has(state.lifecycleState);
+    return !PROCESS_ACTIVE_STATES.has(pm.getState().lifecycleState);
   }
 
   private deliverApprovedQuestions(): void {
@@ -153,5 +166,73 @@ export class Orchestrator {
       });
       this.interventionStore.markApplied(iv.id);
     }
+  }
+
+  /**
+   * data-model.md §7.2: Question/Answer가 "사유가 있는 거절" 상태이고 아직 Decision Record가
+   * 없으면, Scribe Agent에게 Decision Context를 프롬프트로 넘겨 초안을 작성하게 한다.
+   * Scribe는 한 번에 하나만 처리할 수 있으므로, deliverable할 때 딱 하나만 보내고 나머지는
+   * 다음 tick으로 미룬다(§7.4는 Scribe의 도구 권한 제약, 여기는 그 앞단인 dispatch 로직).
+   */
+  private triggerDecisionRecords(): void {
+    if (!this.scribe || !this.isDeliverable(this.scribe)) return;
+
+    const question = this.store
+      .listRejectedQuestionsWithReason()
+      .find((q) => !this.decisionRecords.hasRecordForQuestion(q.id));
+    if (question) {
+      this.dispatchScribe(this.buildQuestionDecisionPrompt(question));
+      return;
+    }
+
+    const answer = this.store
+      .listRejectedAnswersWithReason()
+      .find((a) => !this.decisionRecords.hasRecordForAnswer(a.id));
+    if (answer) {
+      const relatedQuestion = this.store.getQuestion(answer.questionId);
+      this.dispatchScribe(this.buildAnswerDecisionPrompt(answer, relatedQuestion));
+    }
+  }
+
+  private dispatchScribe(prompt: string): void {
+    if (this.scribe!.getState().sessionId === null) {
+      this.scribe!.start(prompt);
+    } else {
+      this.scribe!.resume(prompt);
+    }
+  }
+
+  private buildQuestionDecisionPrompt(q: Question): string {
+    return (
+      `당신은 Scribe Agent입니다(requirements.md §15~19). 아래는 Human이 거절한 질문의 Decision Context입니다.\n\n` +
+      `[질문 거절 기록]\n` +
+      `질문자: ${q.fromAgentId} -> 질문 대상: ${q.toAgentId}\n` +
+      `질문 내용: ${q.text}\n` +
+      `질문자가 밝힌 근거: ${q.selfJustification}\n` +
+      `Human 거절 사유: ${q.reviewReason}\n` +
+      `거절한 Human: ${q.humanReviewer}\n\n` +
+      `이 내용을 바탕으로 submit_decision_record 도구를 정확히 한 번 호출해서 Decision Record를 작성하세요.\n` +
+      `trigger_type은 "QUESTION_REJECTED", trigger_question_id는 "${q.id}", trigger_answer_id는 null로 지정하세요.\n` +
+      `당신의 역할은 기록자입니다 — 새로운 기술적·설계적 판단을 내리지 말고, 위에 주어진 사실만으로 ` +
+      `배경/문제/제약사항/선택지/선택지 비교/판단 근거/결론/결정 주체를 사람이 이해하기 쉬운 글로 정리하세요.`
+    );
+  }
+
+  private buildAnswerDecisionPrompt(a: Answer, relatedQuestion: Question | undefined): string {
+    return (
+      `당신은 Scribe Agent입니다(requirements.md §15~19). 아래는 Human이 거절한 답변의 Decision Context입니다.\n\n` +
+      `[답변 거절 기록]\n` +
+      `원래 질문: ${relatedQuestion?.text ?? "(질문 정보 없음)"}\n` +
+      `답변자: ${a.fromAgentId}\n` +
+      `답변 내용: ${a.text}\n` +
+      `답변자가 표시한 확신 수준: ${a.contentStatus}\n` +
+      `Human 거절 사유: ${a.reviewReason}\n` +
+      `거절한 Human: ${a.humanReviewer}\n\n` +
+      `이 내용을 바탕으로 submit_decision_record 도구를 정확히 한 번 호출해서 Decision Record를 작성하세요.\n` +
+      `trigger_type은 "ANSWER_REJECTED", trigger_question_id는 ${relatedQuestion ? `"${relatedQuestion.id}"` : "null"}, ` +
+      `trigger_answer_id는 "${a.id}"로 지정하세요.\n` +
+      `당신의 역할은 기록자입니다 — 새로운 기술적·설계적 판단을 내리지 말고, 위에 주어진 사실만으로 ` +
+      `배경/문제/제약사항/선택지/선택지 비교/판단 근거/결론/결정 주체를 사람이 이해하기 쉬운 글로 정리하세요.`
+    );
   }
 }

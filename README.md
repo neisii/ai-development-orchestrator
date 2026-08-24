@@ -24,17 +24,17 @@ Human-in-the-loop orchestration system for coordinating multiple AI agents acros
 - [핵심 개념 (glossary.md)](docs/glossary.md)
 - [MVP 범위 (mvp-scope.md)](docs/mvp-scope.md) — 1단계에서 검증할 최소 범위와 완료 기준
 - [아키텍처 (architecture.md)](docs/architecture.md) — Claude Code 헤드리스/hook/MCP를 조합한 오케스트레이터 설계, 실측 검증 기록
-- [데이터 모델 (data-model.md)](docs/data-model.md) — Agent/Question/Answer/Event Log/Intervention 스키마
+- [데이터 모델 (data-model.md)](docs/data-model.md) — Agent/Question/Answer/Event Log/Intervention/Decision Record 스키마
 - [다이어그램 (diagrams.md)](docs/diagrams.md) — 유스케이스 다이어그램, Question/Answer 왕복·Human Intervention 시퀀스 다이어그램
 
 ## 현재 상태
 
-MVP 구현 및 실측 검증 완료. Node.js/TypeScript로 `src/`에 다음을 구현했다.
+Phase 1(MVP 오케스트레이션 루프) + Phase 2(Scribe Agent/Decision Record) 구현 및 실측 검증 완료. Node.js/TypeScript로 `src/`에 다음을 구현했다.
 
 - `ProcessManager` — Agent(Claude Code 헤드리스 세션) spawn/pause/resume/stop
-- MCP 서버(`ask_agent`/`answer_question`) — Agent 간 통신을 강제로 오케스트레이터 경유시킴
+- MCP 서버(`ask_agent`/`answer_question`/`submit_decision_record`) — Agent 간 통신, Scribe의 기록 제출을 전부 오케스트레이터 경유로 강제
 - Hook 수신 서버 — Event Log 수집
-- `Orchestrator` — 승인된 질문/답변 자동 전달, Agent 상태 기록, Human Intervention 적용
-- `admin-cli` — 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction
+- `Orchestrator` — 승인된 질문/답변 자동 전달, Agent 상태 기록, Human Intervention 적용, 거절 사유가 있는 Question/Answer를 Scribe Agent에게 자동 위임
+- `admin-cli` — 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction, Decision Record 검토·승인
 
-mvp-scope.md의 완료 기준 7개 모두 실제 `claude -p` 세션으로 검증됨(각 항목의 실측 기록은 architecture.md 참고). Scribe Agent/Decision Record는 계획대로 제외되어 있으며, 다음 단계는 mvp-scope.md의 Phase 2 이후를 참고. (Windows/macOS 우선 지원, Linux는 추후 고려)
+mvp-scope.md의 MVP 완료 기준 7개와 Phase 2 흐름 모두 실제 `claude -p` 세션으로 검증됨(실측 기록은 architecture.md 참고). Scribe Agent는 `submit_decision_record` 도구 하나만 가질 수 있어 코드 수정이나 다른 Agent 지시가 구조적으로 불가능하다. 다음 단계는 mvp-scope.md의 Phase 3 이후를 참고. (Windows/macOS 우선 지원, Linux는 추후 고려)

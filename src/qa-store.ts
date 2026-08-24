@@ -68,6 +68,13 @@ export class QaStore {
       .all() as Question[];
   }
 
+  /** data-model.md §7.2: Decision Record 자동 트리거 후보 (사유가 있는 거절만). */
+  listRejectedQuestionsWithReason(): Question[] {
+    return this.db
+      .prepare("SELECT * FROM questions WHERE status = 'REJECTED' AND reviewReason IS NOT NULL ORDER BY reviewedAt")
+      .all() as Question[];
+  }
+
   /** Human의 승인/거절. §3.2: 거절 시 reviewReason이 곧 ask_agent 호출의 반환값이 된다. */
   decideQuestion(id: string, decision: "APPROVED" | "REJECTED", reviewer: string, reason: string | null): void {
     this.db
@@ -157,6 +164,13 @@ export class QaStore {
   listPendingAnswers(): Answer[] {
     return this.db
       .prepare("SELECT * FROM answers WHERE reviewStatus = 'PENDING_HUMAN_REVIEW' ORDER BY createdAt")
+      .all() as Answer[];
+  }
+
+  /** data-model.md §7.2: Decision Record 자동 트리거 후보 (사유가 있는 거절만). */
+  listRejectedAnswersWithReason(): Answer[] {
+    return this.db
+      .prepare("SELECT * FROM answers WHERE reviewStatus = 'REJECTED' AND reviewReason IS NOT NULL ORDER BY reviewedAt")
       .all() as Answer[];
   }
 

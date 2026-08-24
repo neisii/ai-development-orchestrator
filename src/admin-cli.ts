@@ -3,9 +3,11 @@ import { QaStore } from "./qa-store.js";
 import { EventLogStore } from "./event-log.js";
 import { AgentStore, computeActivityLabel } from "./agent-store.js";
 import { InterventionStore } from "./intervention-store.js";
+import { DecisionRecordStore } from "./decision-record-store.js";
 
 // Human이 대기 중인 Question/Answer를 확인하고 승인/거절하고, Event Log와 Agent 상태를
-// 조회하고, Agent에 개입(pause/resume/stop/직접 지시)하는 최소 CLI.
+// 조회하고, Agent에 개입(pause/resume/stop/직접 지시)하고, Decision Record 초안을
+// 검토·승인하는 최소 CLI.
 //
 // pause-agent/resume-agent/stop-agent/instruct-agent는 실행 중인 Orchestrator 프로세스가
 // 폴링하며 실제로 적용한다 — 이 CLI는 "개입 요청"만 DB에 남긴다(Question/Answer 승인과 같은 패턴).
@@ -23,6 +25,10 @@ import { InterventionStore } from "./intervention-store.js";
 //   npm run admin -- resume-agent <agentId> [prompt]
 //   npm run admin -- stop-agent <agentId>
 //   npm run admin -- instruct-agent <agentId> <prompt>
+//   npm run admin -- list-decisions [--all]
+//   npm run admin -- show-decision <id>
+//   npm run admin -- decide-decision <id> approve
+//   npm run admin -- decide-decision <id> reject "사유"
 
 const REVIEWER = "human";
 
@@ -31,6 +37,7 @@ const eventLog = new EventLogStore(db);
 const store = new QaStore(db, eventLog);
 const agentStore = new AgentStore(db);
 const interventionStore = new InterventionStore(db);
+const decisionRecords = new DecisionRecordStore(db, eventLog);
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -158,10 +165,55 @@ switch (command) {
     break;
   }
 
+  case "list-decisions": {
+    const showAll = args.includes("--all");
+    const records = showAll ? decisionRecords.list() : decisionRecords.listDrafts();
+    if (records.length === 0) {
+      console.log(showAll ? "Decision Record 없음" : "대기 중인 Decision Record 없음");
+      break;
+    }
+    for (const r of records) {
+      console.log(`[${r.id}] ${r.status} (${r.triggerType})`);
+      console.log(`  결론: ${r.conclusion}`);
+      console.log(`  생성: ${r.createdAt}`);
+    }
+    break;
+  }
+
+  case "show-decision": {
+    const [id] = args;
+    requireId(id);
+    const r = decisionRecords.get(id);
+    if (!r) {
+      console.error(`decision_record ${id}를 찾을 수 없습니다.`);
+      process.exit(1);
+    }
+    console.log(`# Decision Record ${r.id} (${r.status})\n`);
+    console.log(`## 배경\n${r.background}\n`);
+    console.log(`## 문제\n${r.problem}\n`);
+    console.log(`## 제약사항\n${r.constraints}\n`);
+    console.log(`## 선택지\n${r.options}\n`);
+    console.log(`## 선택지 비교\n${r.optionsComparison}\n`);
+    console.log(`## 판단 근거\n${r.rationale}\n`);
+    console.log(`## 결론\n${r.conclusion}\n`);
+    console.log(`## 결정 주체\n${r.decisionMaker}\n`);
+    if (r.relatedInfo) console.log(`## 관련 정보\n${r.relatedInfo}\n`);
+    break;
+  }
+
+  case "decide-decision": {
+    const [id, decision, reason] = args;
+    requireDecisionArgs(id, decision);
+    decisionRecords.decide(id, decision === "approve" ? "APPROVED" : "REJECTED", REVIEWER, reason ?? null);
+    console.log(`Decision Record ${id} -> ${decision}`);
+    break;
+  }
+
   default:
     console.log(
       "사용법: list-questions | decide-question <id> approve|reject [reason] | list-answers | decide-answer <id> approve|reject [reason] | " +
-        "list-events [agentId] | list-agents | pause-agent <id> | resume-agent <id> [prompt] | stop-agent <id> | instruct-agent <id> <prompt>"
+        "list-events [agentId] | list-agents | pause-agent <id> | resume-agent <id> [prompt] | stop-agent <id> | instruct-agent <id> <prompt> | " +
+        "list-decisions [--all] | show-decision <id> | decide-decision <id> approve|reject [reason]"
     );
 }
 
@@ -175,6 +227,13 @@ function requireDecisionArgs(id: string | undefined, decision: string | undefine
 function requireAgentId(agentId: string | undefined): asserts agentId is string {
   if (!agentId) {
     console.error("agentId가 필요합니다.");
+    process.exit(1);
+  }
+}
+
+function requireId(id: string | undefined): asserts id is string {
+  if (!id) {
+    console.error("id가 필요합니다.");
     process.exit(1);
   }
 }
