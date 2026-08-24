@@ -25,6 +25,7 @@ Human-in-the-loop orchestration system for coordinating multiple AI agents acros
 - [MVP 범위 (mvp-scope.md)](docs/mvp-scope.md) — 1단계에서 검증할 최소 범위와 완료 기준
 - [아키텍처 (architecture.md)](docs/architecture.md) — Claude Code 헤드리스/hook/MCP를 조합한 오케스트레이터 설계, 실측 검증 기록
 - [데이터 모델 (data-model.md)](docs/data-model.md) — Agent/Question/Answer/Event Log/Intervention 스키마
+- [다이어그램 (diagrams.md)](docs/diagrams.md) — 유스케이스 다이어그램, Question/Answer 왕복·Human Intervention 시퀀스 다이어그램
 
 ## 현재 상태
 
