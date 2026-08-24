@@ -4,7 +4,8 @@ import type { AgentStore } from "./agent-store.js";
 import type { EventLogStore } from "./event-log.js";
 import type { InterventionStore } from "./intervention-store.js";
 import type { DecisionRecordStore } from "./decision-record-store.js";
-import type { Answer, Question } from "./types.js";
+import type { DecisionInterventionStore } from "./decision-intervention-store.js";
+import type { Answer, DecisionInterventionRequest, DecisionRecord, Question } from "./types.js";
 
 // docs/architecture.md "다음 단계"에서 남긴 통합 작업: 승인된 Question/Answer를 실제로
 // 대상 Agent에게 전달(resume)한다.
@@ -31,6 +32,7 @@ export class Orchestrator {
     private readonly eventLog: EventLogStore,
     private readonly interventionStore: InterventionStore,
     private readonly decisionRecords: DecisionRecordStore,
+    private readonly decisionInterventions: DecisionInterventionStore,
     private readonly pollIntervalMs = 2000
   ) {}
 
@@ -169,13 +171,32 @@ export class Orchestrator {
   }
 
   /**
-   * data-model.md §7.2: Question/Answer가 "사유가 있는 거절" 상태이고 아직 Decision Record가
-   * 없으면, Scribe Agent에게 Decision Context를 프롬프트로 넘겨 초안을 작성하게 한다.
-   * Scribe는 한 번에 하나만 처리할 수 있으므로, deliverable할 때 딱 하나만 보내고 나머지는
-   * 다음 tick으로 미룬다(§7.4는 Scribe의 도구 권한 제약, 여기는 그 앞단인 dispatch 로직).
+   * data-model.md §7.2 / phase3-scope.md §1~2: 다음 우선순위로 Scribe에게 Decision Context를
+   * 프롬프트로 넘겨 초안 작성(또는 재작성)을 시킨다. Scribe는 한 번에 하나만 처리할 수 있으므로,
+   * deliverable할 때 딱 하나만 보내고 나머지는 다음 tick으로 미룬다.
+   *   1. REVISING 상태 레코드(거절 후 재작성 대기) — 가장 먼저 처리해서 Human이 준 사유가
+   *      최신 상태로 반영되게 한다.
+   *   2. Decision Intervention(§1.2, requirements.md §12.4)
+   *   3. 사유가 있는 질문 거절
+   *   4. 사유가 있는 답변 거절
    */
   private triggerDecisionRecords(): void {
     if (!this.scribe || !this.isDeliverable(this.scribe)) return;
+
+    const revising = this.decisionRecords.listPendingRevisions()[0];
+    if (revising) {
+      this.dispatchScribe(this.buildDecisionRevisionPrompt(revising));
+      return;
+    }
+
+    const intervention = this.decisionInterventions
+      .list()
+      .find((iv) => !this.decisionRecords.hasRecordForDecisionIntervention(iv.id));
+    if (intervention) {
+      this.dispatchScribe(this.buildDecisionInterventionPrompt(intervention));
+      this.decisionInterventions.markDispatched(intervention.id);
+      return;
+    }
 
     const question = this.store
       .listRejectedQuestionsWithReason()
@@ -202,6 +223,33 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * phase3-scope.md §4.1: 트리거가 된 Agent가 최근에 다룬 Read/Edit/Write 파일 목록을 뽑아서
+   * Scribe에게 참고용으로 넘긴다. "관련 있어 보이는" 판단은 자동화하지 않는다 — Scribe가
+   * 이 목록 중 실제로 관련 있는 것만 골라 related_file_paths로 제출한다.
+   */
+  private recentFilePaths(agentId: string, limit = 20): string[] {
+    const paths = new Set<string>();
+    for (const e of this.eventLog.list({ agentId, limit })) {
+      if (e.type !== "TOOL_PRE") continue;
+      const payload = e.payload as { tool_name?: string; tool_input?: { file_path?: string } };
+      if (!payload.tool_name || !["Read", "Edit", "Write"].includes(payload.tool_name)) continue;
+      const filePath = payload.tool_input?.file_path;
+      if (filePath) paths.add(filePath);
+    }
+    return [...paths];
+  }
+
+  private filePathsInstruction(filePaths: string[]): string {
+    if (filePaths.length === 0) {
+      return `참고할 최근 파일 목록이 없습니다. related_file_paths는 빈 배열로 지정하세요.\n`;
+    }
+    return (
+      `해당 Agent가 최근 다룬 파일 목록: ${filePaths.join(", ")}\n` +
+      `이 중 이 결정과 실제로 관련 있는 파일만 골라 related_file_paths로 제출하세요(관련 없으면 빈 배열).\n`
+    );
+  }
+
   private buildQuestionDecisionPrompt(q: Question): string {
     return (
       `당신은 Scribe Agent입니다(requirements.md §15~19). 아래는 Human이 거절한 질문의 Decision Context입니다.\n\n` +
@@ -212,7 +260,9 @@ export class Orchestrator {
       `Human 거절 사유: ${q.reviewReason}\n` +
       `거절한 Human: ${q.humanReviewer}\n\n` +
       `이 내용을 바탕으로 submit_decision_record 도구를 정확히 한 번 호출해서 Decision Record를 작성하세요.\n` +
-      `trigger_type은 "QUESTION_REJECTED", trigger_question_id는 "${q.id}", trigger_answer_id는 null로 지정하세요.\n` +
+      `trigger_type은 "QUESTION_REJECTED", trigger_question_id는 "${q.id}", trigger_answer_id와 ` +
+      `trigger_decision_intervention_id는 null, revising_decision_record_id는 null로 지정하세요.\n` +
+      this.filePathsInstruction(this.recentFilePaths(q.fromAgentId)) +
       `당신의 역할은 기록자입니다 — 새로운 기술적·설계적 판단을 내리지 말고, 위에 주어진 사실만으로 ` +
       `배경/문제/제약사항/선택지/선택지 비교/판단 근거/결론/결정 주체를 사람이 이해하기 쉬운 글로 정리하세요.`
     );
@@ -230,9 +280,57 @@ export class Orchestrator {
       `거절한 Human: ${a.humanReviewer}\n\n` +
       `이 내용을 바탕으로 submit_decision_record 도구를 정확히 한 번 호출해서 Decision Record를 작성하세요.\n` +
       `trigger_type은 "ANSWER_REJECTED", trigger_question_id는 ${relatedQuestion ? `"${relatedQuestion.id}"` : "null"}, ` +
-      `trigger_answer_id는 "${a.id}"로 지정하세요.\n` +
+      `trigger_answer_id는 "${a.id}", trigger_decision_intervention_id는 null, revising_decision_record_id는 null로 지정하세요.\n` +
+      this.filePathsInstruction(this.recentFilePaths(a.fromAgentId)) +
       `당신의 역할은 기록자입니다 — 새로운 기술적·설계적 판단을 내리지 말고, 위에 주어진 사실만으로 ` +
       `배경/문제/제약사항/선택지/선택지 비교/판단 근거/결론/결정 주체를 사람이 이해하기 쉬운 글로 정리하세요.`
+    );
+  }
+
+  /** phase3-scope.md §1.2: Decision Intervention(A안/B안 선택)을 새 트리거로 다룬다. */
+  private buildDecisionInterventionPrompt(iv: DecisionInterventionRequest): string {
+    return (
+      `당신은 Scribe Agent입니다(requirements.md §15~19, §12.4). 아래는 Human이 직접 개입해 ` +
+      `선택지를 결정한 Decision Context입니다.\n\n` +
+      `[Decision Intervention 기록]\n` +
+      `대상 Agent: ${iv.agentId}\n` +
+      `Human이 선택한 안: ${iv.chosenOption}\n` +
+      `기각된 안: ${iv.rejectedOptions}\n` +
+      `Human이 밝힌 근거: ${iv.reasoning}\n` +
+      `개입한 Human: ${iv.requestedBy}\n\n` +
+      `이 내용을 바탕으로 submit_decision_record 도구를 정확히 한 번 호출해서 Decision Record를 작성하세요.\n` +
+      `trigger_type은 "DECISION_INTERVENTION", trigger_decision_intervention_id는 "${iv.id}", ` +
+      `trigger_question_id와 trigger_answer_id는 null, revising_decision_record_id는 null로 지정하세요.\n` +
+      this.filePathsInstruction(this.recentFilePaths(iv.agentId)) +
+      `당신의 역할은 기록자입니다 — 새로운 기술적·설계적 판단을 내리지 말고, 위에 주어진 사실만으로 ` +
+      `배경/문제/제약사항/선택지/선택지 비교/판단 근거/결론/결정 주체를 사람이 이해하기 쉬운 글로 정리하세요.`
+    );
+  }
+
+  /** phase3-scope.md §2: Human이 거절한 초안을 사유와 함께 돌려주고, 같은 레코드로 재제출하게 한다. */
+  private buildDecisionRevisionPrompt(record: DecisionRecord): string {
+    return (
+      `당신은 Scribe Agent입니다(requirements.md §15~19). Human이 아래 Decision Record 초안을 거절했습니다. ` +
+      `사유를 반영해서 고친 뒤 같은 기록으로 다시 제출하세요.\n\n` +
+      `[기존 초안]\n` +
+      `배경: ${record.background}\n` +
+      `문제: ${record.problem}\n` +
+      `제약사항: ${record.constraints}\n` +
+      `선택지: ${record.options}\n` +
+      `선택지 비교: ${record.optionsComparison}\n` +
+      `판단 근거: ${record.rationale}\n` +
+      `결론: ${record.conclusion}\n` +
+      `결정 주체: ${record.decisionMaker}\n` +
+      `관련 파일: ${record.relatedFilePaths.join(", ") || "(없음)"}\n\n` +
+      `Human 거절 사유: ${record.reviewReason}\n` +
+      `거절한 Human: ${record.humanReviewer}\n\n` +
+      `이 사유를 반영해서 위 초안을 고친 다음, submit_decision_record 도구를 정확히 한 번 호출해서 다시 제출하세요.\n` +
+      `revising_decision_record_id는 "${record.id}"로 지정하세요. trigger_type/trigger_question_id/trigger_answer_id/` +
+      `trigger_decision_intervention_id는 값을 넣긴 해야 하지만 재작성 시에는 사용되지 않으니 기존 값을 그대로 쓰면 됩니다 ` +
+      `(trigger_type: "${record.triggerType}", trigger_question_id: ${record.triggerQuestionId ? `"${record.triggerQuestionId}"` : "null"}, ` +
+      `trigger_answer_id: ${record.triggerAnswerId ? `"${record.triggerAnswerId}"` : "null"}, ` +
+      `trigger_decision_intervention_id: ${record.triggerDecisionInterventionId ? `"${record.triggerDecisionInterventionId}"` : "null"}).\n` +
+      `당신의 역할은 기록자입니다 — 새로운 기술적·설계적 판단을 내리지 말고, 거절 사유를 반영해 사실 정리만 고치세요.`
     );
   }
 }

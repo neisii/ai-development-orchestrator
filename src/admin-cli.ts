@@ -4,6 +4,8 @@ import { EventLogStore } from "./event-log.js";
 import { AgentStore, computeActivityLabel } from "./agent-store.js";
 import { InterventionStore } from "./intervention-store.js";
 import { DecisionRecordStore } from "./decision-record-store.js";
+import { DecisionInterventionStore } from "./decision-intervention-store.js";
+import type { DecisionRecord } from "./types.js";
 
 // Human이 대기 중인 Question/Answer를 확인하고 승인/거절하고, Event Log와 Agent 상태를
 // 조회하고, Agent에 개입(pause/resume/stop/직접 지시)하고, Decision Record 초안을
@@ -29,6 +31,9 @@ import { DecisionRecordStore } from "./decision-record-store.js";
 //   npm run admin -- show-decision <id>
 //   npm run admin -- decide-decision <id> approve
 //   npm run admin -- decide-decision <id> reject "사유"
+//   npm run admin -- decide-choice <agentId> "<선택한 안>" "<기각된 안>" "<근거>"
+//   npm run admin -- search-decisions <keyword>
+//   npm run admin -- show-decisions-for-file <path>
 
 const REVIEWER = "human";
 
@@ -38,6 +43,7 @@ const store = new QaStore(db, eventLog);
 const agentStore = new AgentStore(db);
 const interventionStore = new InterventionStore(db);
 const decisionRecords = new DecisionRecordStore(db, eventLog);
+const decisionInterventions = new DecisionInterventionStore(db, eventLog);
 
 const [command, ...args] = process.argv.slice(2);
 
@@ -188,16 +194,7 @@ switch (command) {
       console.error(`decision_record ${id}를 찾을 수 없습니다.`);
       process.exit(1);
     }
-    console.log(`# Decision Record ${r.id} (${r.status})\n`);
-    console.log(`## 배경\n${r.background}\n`);
-    console.log(`## 문제\n${r.problem}\n`);
-    console.log(`## 제약사항\n${r.constraints}\n`);
-    console.log(`## 선택지\n${r.options}\n`);
-    console.log(`## 선택지 비교\n${r.optionsComparison}\n`);
-    console.log(`## 판단 근거\n${r.rationale}\n`);
-    console.log(`## 결론\n${r.conclusion}\n`);
-    console.log(`## 결정 주체\n${r.decisionMaker}\n`);
-    if (r.relatedInfo) console.log(`## 관련 정보\n${r.relatedInfo}\n`);
+    printDecisionRecord(r);
     break;
   }
 
@@ -205,7 +202,60 @@ switch (command) {
     const [id, decision, reason] = args;
     requireDecisionArgs(id, decision);
     decisionRecords.decide(id, decision === "approve" ? "APPROVED" : "REJECTED", REVIEWER, reason ?? null);
-    console.log(`Decision Record ${id} -> ${decision}`);
+    if (decision === "approve") {
+      console.log(`Decision Record ${id} -> APPROVED`);
+    } else {
+      console.log(`Decision Record ${id} -> REVISING (Scribe가 사유를 반영해 같은 레코드를 다시 작성합니다)`);
+    }
+    break;
+  }
+
+  // phase3-scope.md §1.2: requirements.md §12.4 Decision Intervention. Agent가 제안한 A안/B안
+  // 중 Human이 고른 결과를 기록하면, Orchestrator가 다음 polling에서 Scribe를 깨워 초안을 만든다.
+  case "decide-choice": {
+    const [agentId, chosenOption, rejectedOptions, reasoning] = args;
+    if (!agentId || !chosenOption || !rejectedOptions || !reasoning) {
+      console.error('agentId, "선택한 안", "기각된 안", "근거"가 모두 필요합니다.');
+      process.exit(1);
+    }
+    const iv = decisionInterventions.request({ agentId, chosenOption, rejectedOptions, reasoning, requestedBy: REVIEWER });
+    console.log(`${agentId}의 Decision Intervention 기록됨 (id: ${iv.id}) — 다음 polling에서 Scribe에게 전달됩니다.`);
+    break;
+  }
+
+  case "search-decisions": {
+    const [keyword] = args;
+    if (!keyword) {
+      console.error("keyword가 필요합니다.");
+      process.exit(1);
+    }
+    const records = decisionRecords.search(keyword);
+    if (records.length === 0) {
+      console.log(`"${keyword}"와 일치하는 Decision Record 없음`);
+      break;
+    }
+    for (const r of records) {
+      console.log(`[${r.id}] ${r.status} (${r.triggerType})`);
+      console.log(`  결론: ${r.conclusion}`);
+      console.log(`  생성: ${r.createdAt}`);
+    }
+    break;
+  }
+
+  case "show-decisions-for-file": {
+    const [path] = args;
+    if (!path) {
+      console.error("path가 필요합니다.");
+      process.exit(1);
+    }
+    const records = decisionRecords.listByFilePath(path);
+    if (records.length === 0) {
+      console.log(`"${path}"와 관련된 Decision Record 없음`);
+      break;
+    }
+    for (const r of records) {
+      printDecisionRecord(r);
+    }
     break;
   }
 
@@ -213,8 +263,23 @@ switch (command) {
     console.log(
       "사용법: list-questions | decide-question <id> approve|reject [reason] | list-answers | decide-answer <id> approve|reject [reason] | " +
         "list-events [agentId] | list-agents | pause-agent <id> | resume-agent <id> [prompt] | stop-agent <id> | instruct-agent <id> <prompt> | " +
-        "list-decisions [--all] | show-decision <id> | decide-decision <id> approve|reject [reason]"
+        "list-decisions [--all] | show-decision <id> | decide-decision <id> approve|reject [reason] | " +
+        'decide-choice <agentId> "<선택한 안>" "<기각된 안>" "<근거>" | search-decisions <keyword> | show-decisions-for-file <path>'
     );
+}
+
+function printDecisionRecord(r: DecisionRecord): void {
+  console.log(`# Decision Record ${r.id} (${r.status})\n`);
+  console.log(`## 배경\n${r.background}\n`);
+  console.log(`## 문제\n${r.problem}\n`);
+  console.log(`## 제약사항\n${r.constraints}\n`);
+  console.log(`## 선택지\n${r.options}\n`);
+  console.log(`## 선택지 비교\n${r.optionsComparison}\n`);
+  console.log(`## 판단 근거\n${r.rationale}\n`);
+  console.log(`## 결론\n${r.conclusion}\n`);
+  console.log(`## 결정 주체\n${r.decisionMaker}\n`);
+  if (r.relatedInfo) console.log(`## 관련 정보\n${r.relatedInfo}\n`);
+  if (r.relatedFilePaths.length > 0) console.log(`## 관련 파일\n${r.relatedFilePaths.join("\n")}\n`);
 }
 
 function requireDecisionArgs(id: string | undefined, decision: string | undefined): asserts id is string {

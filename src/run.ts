@@ -8,6 +8,7 @@ import { EventLogStore } from "./event-log.js";
 import { AgentStore } from "./agent-store.js";
 import { InterventionStore } from "./intervention-store.js";
 import { DecisionRecordStore } from "./decision-record-store.js";
+import { DecisionInterventionStore } from "./decision-intervention-store.js";
 import { ProcessManager } from "./process-manager.js";
 import { Orchestrator } from "./orchestrator.js";
 import { startHookServer } from "./hook-server.js";
@@ -76,7 +77,16 @@ const store = new QaStore(db, eventLog);
 const agentStore = new AgentStore(db);
 const interventionStore = new InterventionStore(db);
 const decisionRecords = new DecisionRecordStore(db, eventLog);
-const orchestrator = new Orchestrator(store, agentStore, eventLog, interventionStore, decisionRecords, 2000);
+const decisionInterventions = new DecisionInterventionStore(db, eventLog);
+const orchestrator = new Orchestrator(
+  store,
+  agentStore,
+  eventLog,
+  interventionStore,
+  decisionRecords,
+  decisionInterventions,
+  2000
+);
 
 const projectAgents: ProcessManager[] = [];
 for (const agentConfig of config.agents) {

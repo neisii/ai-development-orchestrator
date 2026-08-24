@@ -122,7 +122,9 @@ export type EventType =
   | "ANSWER_REVIEWED"
   | "INTERVENTION"
   | "DECISION_RECORD_CREATED"
-  | "DECISION_RECORD_REVIEWED";
+  | "DECISION_RECORD_REVISED"
+  | "DECISION_RECORD_REVIEWED"
+  | "DECISION_INTERVENTION_REQUESTED";
 
 export type EventSource = "hook" | "mcp" | "orchestrator";
 
@@ -139,16 +141,22 @@ export interface EventLogEntry {
 }
 
 // docs/data-model.md §7 참고 (Phase 2: Decision Record)
+// docs/phase3-scope.md 참고 (Phase 3: 트리거 확장, 재작성 경로, 파일 추적성)
 
-export type DecisionRecordTriggerType = "QUESTION_REJECTED" | "ANSWER_REJECTED";
+export type DecisionRecordTriggerType = "QUESTION_REJECTED" | "ANSWER_REJECTED" | "DECISION_INTERVENTION";
 
-export type DecisionRecordStatus = "DRAFT" | "APPROVED" | "REJECTED";
+/**
+ * REJECTED가 없다: 거절은 종단이 아니라 phase3-scope.md §2에 따라 REVISING으로
+ * 돌아가 Scribe가 같은 레코드를 다시 쓸 기회를 준다.
+ */
+export type DecisionRecordStatus = "DRAFT" | "REVISING" | "APPROVED";
 
 export interface DecisionRecord {
   id: string;
   triggerType: DecisionRecordTriggerType;
   triggerQuestionId: string | null;
   triggerAnswerId: string | null;
+  triggerDecisionInterventionId: string | null;
   background: string;
   problem: string;
   constraints: string;
@@ -158,9 +166,24 @@ export interface DecisionRecord {
   conclusion: string;
   decisionMaker: string;
   relatedInfo: string | null;
+  /** phase3-scope.md §4: Scribe가 Event Log에서 골라 제출한, 이 결정과 관련된 파일 경로. */
+  relatedFilePaths: string[];
   status: DecisionRecordStatus;
   humanReviewer: string | null;
   reviewReason: string | null;
   createdAt: string;
   reviewedAt: string | null;
+}
+
+// phase3-scope.md §1.2: requirements.md §12.4 Decision Intervention을 새 트리거로 추가.
+// Question/Answer와 달리 밑에 깔린 도구 호출이 없다 — Human이 admin-cli로 곧바로 기록한다.
+export interface DecisionInterventionRequest {
+  id: string;
+  agentId: string;
+  chosenOption: string;
+  rejectedOptions: string;
+  reasoning: string;
+  requestedBy: string;
+  requestedAt: string;
+  dispatchedAt: string | null;
 }

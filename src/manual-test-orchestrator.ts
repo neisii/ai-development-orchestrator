@@ -7,6 +7,7 @@ import { EventLogStore } from "./event-log.js";
 import { AgentStore } from "./agent-store.js";
 import { InterventionStore } from "./intervention-store.js";
 import { DecisionRecordStore } from "./decision-record-store.js";
+import { DecisionInterventionStore } from "./decision-intervention-store.js";
 import { ProcessManager } from "./process-manager.js";
 import { Orchestrator } from "./orchestrator.js";
 
@@ -44,6 +45,7 @@ const orchestrator = new Orchestrator(
   eventLog,
   new InterventionStore(db),
   new DecisionRecordStore(db, eventLog),
+  new DecisionInterventionStore(db, eventLog),
   2000
 );
 

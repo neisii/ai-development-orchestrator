@@ -78,6 +78,7 @@ export function openDb(path: string = process.env.ORCHESTRATOR_DB_PATH ?? DEFAUL
       triggerType TEXT NOT NULL,
       triggerQuestionId TEXT,
       triggerAnswerId TEXT,
+      triggerDecisionInterventionId TEXT,
       background TEXT NOT NULL,
       problem TEXT NOT NULL,
       constraints TEXT NOT NULL,
@@ -87,11 +88,23 @@ export function openDb(path: string = process.env.ORCHESTRATOR_DB_PATH ?? DEFAUL
       conclusion TEXT NOT NULL,
       decisionMaker TEXT NOT NULL,
       relatedInfo TEXT,
+      relatedFilePaths TEXT NOT NULL DEFAULT '[]',
       status TEXT NOT NULL,
       humanReviewer TEXT,
       reviewReason TEXT,
       createdAt TEXT NOT NULL,
       reviewedAt TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS decision_intervention_requests (
+      id TEXT PRIMARY KEY,
+      agentId TEXT NOT NULL,
+      chosenOption TEXT NOT NULL,
+      rejectedOptions TEXT NOT NULL,
+      reasoning TEXT NOT NULL,
+      requestedBy TEXT NOT NULL,
+      requestedAt TEXT NOT NULL,
+      dispatchedAt TEXT
     );
   `);
   return db;

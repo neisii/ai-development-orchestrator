@@ -341,6 +341,19 @@ Scribe를 실제로 실행해보다가 재현된 버그다. `isDeliverable()`에
 
 다만 "api-agent가 실제로 그 파일을 읽고 `stockQuantity` 필드를 찾아서 답하는지"까지의 전체 왕복은 두 번 시도했으나 둘 다 확인하지 못했다 — buyer-bff의 첫 `ask_agent` 호출 자체가 매번 2분 넘게 응답이 안 왔다(CPU 시간도 거의 안 늘어남, API 응답 대기 중인 패턴). 처음엔 사용량 제한으로 추정했지만, 두 번째 시도 때는 같은 세션에서 `claude -p "hi"`가 몇 초 안에 정상 응답했고 `lsof`로 확인한 네트워크 연결도 Anthropic API 서버에 정상적으로 맺혀 있어서, 순수 레이트리밋이라고 단정하긴 어렵다 — 도구 호출이 낀 세션에서만 반복적으로 느려지는 원인 불명의 지연으로 정리한다. 코드나 설정에 문제가 있다고 볼 근거는 없었다(인자 전부 정확, 프로세스 정상 spawn, 네트워크 연결도 정상). [backlog.md](backlog.md)에 "부분 검증" 상태로 남겨뒀다.
 
+## 15. Phase 3: Decision Intervention 트리거 / 거절 재작성 경로 / History 검색 / 파일 추적성
+
+범위 정의는 [phase3-scope.md](phase3-scope.md) 참고. 구현은 기존 Phase 1~2 패턴을 그대로 확장하는 방식으로 진행했다 — 새 상태 기계나 새 통신 경로를 만들지 않았다.
+
+- **`DecisionRecordStatus`에 `REJECTED` 대신 `REVISING`을 추가**(`src/types.ts`): data-model.md §7.3에서 다루듯, Decision Record 거절은 Question/Answer처럼 도구 호출 응답으로 그 자리에서 되돌릴 수 없다(Scribe가 `submit_decision_record` 응답을 기다리며 대기하지 않으므로). 대신 거절 시 `REVISING`으로 돌아가고, `Orchestrator.triggerDecisionRecords()`가 이 상태를 최우선순위로 감지해 거절 사유를 담은 프롬프트로 Scribe를 다시 깨운다. Scribe가 `submit_decision_record(revising_decision_record_id=...)`로 재호출하면 `DecisionRecordStore.update()`가 **새 레코드가 아니라 같은 id의 레코드**를 갱신하고 `DRAFT`로 되돌린다.
+- **`DecisionInterventionStore`(신규 파일)**: `interventions` 테이블/`InterventionStore`와 완전히 같은 "요청 남김 → Orchestrator polling → 처리" 패턴을 그대로 복제했다. `admin-cli decide-choice`로 기록을 남기면, 다음 polling에서 `Orchestrator.triggerDecisionRecords()`가 이걸 트리거로 골라 Scribe에게 넘긴다. Question/Answer 거절과 달리 밑에 도구 호출이 없다는 점만 다르다.
+- **`relatedFilePaths`(Code ↔ Decision Record 추적성)**: `Orchestrator.recentFilePaths(agentId)`가 Event Log의 `TOOL_PRE` 이벤트 중 `Read`/`Edit`/`Write`의 `tool_input.file_path`를 모아 Scribe 프롬프트에 참고 목록으로 넣어준다. "관련 있어 보이는" 판단은 자동화하지 않고(§13, activity label과 같은 원칙) Scribe가 그중 골라 `related_file_paths`로 제출하게 한다. DB에는 `event_log.payload`와 같은 패턴으로 JSON 텍스트로 저장한다.
+- **`search-decisions`/`show-decisions-for-file`**: 둘 다 SQLite `LIKE` 기반 단순 텍스트 검색이다(임베딩/의미 검색 아님). `show-decisions-for-file`은 LIKE로 후보를 좁힌 뒤 JS에서 `relatedFilePaths.includes(path)`로 한 번 더 걸러서, 경로 부분 문자열(예: `src/api-client`가 `src/api-client.ts`에 매치)로 오탐되지 않게 했다.
+
+### 15.1 실측 검증 (스토어 계층만, API 세션 미실증)
+
+`npx tsc --noEmit -p tsconfig.json`은 전체 통과했다. 별도로 `claude -p` 세션 없이 스토어 클래스만 직접 두드리는 스모크 테스트를 짜서, Decision Intervention 생성 → dedup 체크 → Decision Record 생성(파일 경로 포함) → 거절(`REVISING` 전이 확인) → 재작성(`update()`로 같은 id 갱신, `DRAFT` 복귀 확인) → 승인 → `search`/`listByFilePath`(부분 문자열 오탐 없음 확인)까지 전 구간을 실행해 통과시켰다. §14.3에서 겪은 "도구 호출이 낀 세션에서만 반복되는 원인 불명의 지연" 문제가 여전히 미해결이라, Scribe Agent가 실제로 `submit_decision_record`를 새 필드들과 함께 호출하는 전체 왕복까지는 이번에도 실측하지 못했다. [backlog.md](backlog.md)에 기록해뒀다.
+
 ## 다음 단계
 
-Phase 1(오케스트레이션 루프)과 Phase 2(Scribe Agent/Decision Record) 모두 실제 `claude -p` 세션으로 검증 완료됐고, 인터랙티브 데모(§14)까지 갖췄다. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.
+Phase 1(오케스트레이션 루프)과 Phase 2(Scribe Agent/Decision Record) 모두 실제 `claude -p` 세션으로 검증 완료됐고, 인터랙티브 데모(§14)까지 갖췄다. Phase 3(§15)는 코드·스토어 계층 검증까지 마쳤고 실제 세션 왕복만 남았다. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.

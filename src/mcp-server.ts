@@ -135,9 +135,15 @@ server.registerTool(
       "기술적·설계적 판단을 새로 내리거나 Agent에게 구현을 지시하는 데 쓰지 않는다. " +
       "제출한 기록은 DRAFT 상태로 저장되고 Human이 별도로 승인/거절한다 — 이 도구는 응답을 기다리지 않고 바로 끝난다.",
     inputSchema: {
-      trigger_type: z.enum(["QUESTION_REJECTED", "ANSWER_REJECTED"]).describe("이 기록을 촉발한 이벤트 종류"),
+      trigger_type: z
+        .enum(["QUESTION_REJECTED", "ANSWER_REJECTED", "DECISION_INTERVENTION"])
+        .describe("이 기록을 촉발한 이벤트 종류"),
       trigger_question_id: z.string().nullable().describe("트리거가 질문 거절이면 그 question_id, 아니면 null"),
       trigger_answer_id: z.string().nullable().describe("트리거가 답변 거절이면 그 answer_id, 아니면 null"),
+      trigger_decision_intervention_id: z
+        .string()
+        .nullable()
+        .describe("트리거가 Decision Intervention이면 그 id, 아니면 null"),
       background: z.string().describe("왜 이 결정이 필요하게 되었는가"),
       problem: z.string().describe("무엇을 해결해야 했는가"),
       constraints: z.string().describe("결정에 영향을 미치는 기존 구조나 요구사항"),
@@ -147,13 +153,57 @@ server.registerTool(
       conclusion: z.string().describe("무엇을 결정했는가"),
       decision_maker: z.string().describe("누가 최종 결정했는가 (거절한 Human)"),
       related_info: z.string().nullable().describe("관련 요구사항/프로젝트/코드 등의 참고 정보, 없으면 null"),
+      related_file_paths: z
+        .array(z.string())
+        .describe("이 결정과 관련된 파일 경로들. 오케스트레이터가 제공한 최근 파일 목록 중 실제로 관련 있는 것만 고른다. 없으면 빈 배열"),
+      revising_decision_record_id: z
+        .string()
+        .nullable()
+        .describe(
+          "Human이 거절해서 다시 쓰는 재작성이면 그 decision_record_id(같은 레코드를 갱신한다), 새로 작성하는 기록이면 null"
+        ),
     },
   },
   async (input) => {
+    if (input.revising_decision_record_id) {
+      const updated = decisionRecords.update(input.revising_decision_record_id, {
+        background: input.background,
+        problem: input.problem,
+        constraints: input.constraints,
+        options: input.options,
+        optionsComparison: input.options_comparison,
+        rationale: input.rationale,
+        conclusion: input.conclusion,
+        decisionMaker: input.decision_maker,
+        relatedInfo: input.related_info,
+        relatedFilePaths: input.related_file_paths,
+      });
+      if (!updated) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: "text" as const,
+              text: `decision_record_id ${input.revising_decision_record_id}를 찾을 수 없거나 재작성 대기 상태가 아닙니다.`,
+            },
+          ],
+        };
+      }
+      return {
+        content: [
+          {
+            type: "text" as const,
+            text: `Decision Record가 갱신된 초안으로 저장되었습니다 (decision_record_id: ${updated.id}). Human 승인을 기다립니다.`,
+          },
+        ],
+      };
+    }
+
     const record = decisionRecords.create({
       triggerType: input.trigger_type,
       triggerQuestionId: input.trigger_question_id,
       triggerAnswerId: input.trigger_answer_id,
+      triggerDecisionInterventionId: input.trigger_decision_intervention_id,
       background: input.background,
       problem: input.problem,
       constraints: input.constraints,
@@ -163,6 +213,7 @@ server.registerTool(
       conclusion: input.conclusion,
       decisionMaker: input.decision_maker,
       relatedInfo: input.related_info,
+      relatedFilePaths: input.related_file_paths,
     });
     return {
       content: [

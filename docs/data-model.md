@@ -197,17 +197,17 @@ requirements.md §12는 Execution Control(Pause/Resume/Stop/Cancel)과 Direct In
 
 Orchestrator는 미적용 상태(`appliedAt IS NULL`)인 Intervention을 `requestedAt` 순서로 폴링하며 처리한다. `RESUME`은 대상 Agent의 프로세스가 아직 살아있으면(예: 방금 보낸 `PAUSE`가 아직 반영되기 전) 이번 주기에는 건너뛰고 다음 주기에 재시도한다 — Question/Answer 전달과 같은 재시도 방식이다. 적용에 성공하면 `EVENT_LOG`에 `type: INTERVENTION`, `payload: { kind, prompt, requestedBy }`로 기록한다(§5.2).
 
-## 7. Decision Record (Phase 2)
+## 7. Decision Record (Phase 2 + Phase 3)
 
-requirements.md §15~20 참고. §3~6까지의 모든 엔티티와 같은 "요청/초안 → Human 승인 → 확정" 패턴을 그대로 따른다: Question/Answer 거절(사유 포함)이 자동으로 Scribe Agent를 깨우는 트리거가 되고, Scribe가 초안을 작성하면 Human이 승인해야 확정된다.
+requirements.md §15~20 참고. §3~6까지의 모든 엔티티와 같은 "요청/초안 → Human 승인 → 확정" 패턴을 그대로 따른다: Question/Answer 거절(사유 포함)이나 Decision Intervention(§7.5)이 자동으로 Scribe Agent를 깨우는 트리거가 되고, Scribe가 초안을 작성하면 Human이 승인해야 확정된다. Phase 3 범위 정의는 [phase3-scope.md](phase3-scope.md) 참고.
 
 ### 7.1 엔티티
 
 | 필드 | 타입 | 설명 |
 |---|---|---|
 | `id` | string | |
-| `triggerType` | `"QUESTION_REJECTED" \| "ANSWER_REJECTED"` | §7.2 |
-| `triggerQuestionId` / `triggerAnswerId` | string \| null | 트리거가 된 Question/Answer |
+| `triggerType` | `"QUESTION_REJECTED" \| "ANSWER_REJECTED" \| "DECISION_INTERVENTION"` | §7.2 |
+| `triggerQuestionId` / `triggerAnswerId` / `triggerDecisionInterventionId` | string \| null | 트리거가 된 Question/Answer/Decision Intervention |
 | `background` | string | §17 "배경" |
 | `problem` | string | §17 "문제" |
 | `constraints` | string | §17 "제약사항" |
@@ -215,24 +215,27 @@ requirements.md §15~20 참고. §3~6까지의 모든 엔티티와 같은 "요�
 | `optionsComparison` | string | §17 "선택지 비교" |
 | `rationale` | string | §17 "판단 근거" |
 | `conclusion` | string | §17 "결론" |
-| `decisionMaker` | string | §17 "결정 주체" — 트리거가 된 Question/Answer의 `humanReviewer` |
+| `decisionMaker` | string | §17 "결정 주체" — 트리거가 된 Question/Answer/Decision Intervention의 `humanReviewer`/`requestedBy` |
 | `relatedInfo` | string \| null | §17 "관련 정보" |
+| `relatedFilePaths` | string[] | phase3-scope.md §4.1: 이 결정과 관련된 파일 경로. DB에는 JSON 텍스트로 저장(`event_log.payload`와 같은 패턴) |
 | `status` | `DecisionRecordStatus` | §7.3 |
 | `humanReviewer` / `reviewReason` | string \| null | Human 승인/거절 시 |
 | `createdAt` / `reviewedAt` | datetime | |
 
-`background`~`relatedInfo`는 구조화된 하위 필드 대신 자유 서술(텍스트/마크다운)로 저장한다. Scribe(LLM)에게 고정 스키마의 선택지 비교표 같은 걸 강제하는 것보다, §15 "사람이 이해할 수 있는 기록"이라는 목적에 맞게 자연스러운 글로 쓰게 하는 편이 낫다고 판단했다.
+`background`~`relatedInfo`는 구조화된 하위 필드 대신 자유 서술(텍스트/마크다운)로 저장한다. Scribe(LLM)에게 고정 스키마의 선택지 비교표 같은 걸 강제하는 것보다, §15 "사람이 이해할 수 있는 기록"이라는 목적에 맞게 자연스러운 글로 쓰게 하는 편이 낫다고 판단했다. `relatedFilePaths`도 같은 이유로 Scribe의 판단에 맡긴다 — Orchestrator는 트리거가 된 Agent가 최근 다룬 파일 목록(Event Log의 `TOOL_PRE` 중 `Read`/`Edit`/`Write`의 `tool_input.file_path`)만 참고 자료로 프롬프트에 넣어주고, 그중 실제로 관련 있는 파일을 고르는 건 자동화하지 않는다(phase3-scope.md §3.1과 같은 원칙).
 
 ### 7.2 트리거 (자동, 범위를 좁게 잡음)
 
-Orchestrator가 폴링하며 다음을 감지한다.
+Orchestrator가 폴링하며 다음을 우선순위대로 감지해 하나씩만 Scribe에게 넘긴다(Scribe는 한 번에 하나만 처리 가능).
 
-- `Question.status = REJECTED` AND `reviewReason IS NOT NULL` AND 아직 이 Question을 트리거로 하는 Decision Record가 없음
-- `Answer.reviewStatus = REJECTED` AND `reviewReason IS NOT NULL` AND 아직 없음
+1. `status = REVISING`인 Decision Record — §7.3 재작성 경로. 가장 먼저 처리해서 Human이 준 거절 사유가 최신 상태로 반영되게 한다.
+2. Decision Intervention 요청 중 아직 Decision Record가 없는 것 — §7.5.
+3. `Question.status = REJECTED` AND `reviewReason IS NOT NULL` AND 아직 이 Question을 트리거로 하는 Decision Record가 없음
+4. `Answer.reviewStatus = REJECTED` AND `reviewReason IS NOT NULL` AND 아직 없음
 
 **Direct Instruction 등 다른 이벤트는 트리거로 삼지 않는다.** Agent 상태(§2.2~2.3)에서 이미 적용한 원칙과 같다: "사유가 실제로 딸려오는 이벤트"만 기계적으로 신뢰할 수 있는 트리거이고, 그 밖의 이벤트를 전부 자동 트리거로 삼으면(예: 모든 Direct Instruction) "그냥 계속해" 같은 일상적 지시까지 의사결정으로 오인될 잡음 위험이 크다.
 
-감지되면 Scribe Agent에게 Decision Context(§18)를 프롬프트로 구성해 전달한다: Question/Answer 원문, `selfJustification`/`contentStatus`, `reviewReason`, `reviewer`.
+감지되면 Scribe Agent에게 Decision Context(§18)를 프롬프트로 구성해 전달한다: Question/Answer 원문, `selfJustification`/`contentStatus`, `reviewReason`, `reviewer`(Decision Intervention이면 `chosenOption`/`rejectedOptions`/`reasoning`), 그리고 관련 파일 참고 목록.
 
 ### 7.3 Status
 
@@ -240,16 +243,39 @@ Orchestrator가 폴링하며 다음을 감지한다.
 stateDiagram-v2
     [*] --> DRAFT: submit_decision_record 호출
     DRAFT --> APPROVED: Human 승인
-    DRAFT --> REJECTED: Human 거절
+    DRAFT --> REVISING: Human 거절 (사유 포함)
+    REVISING --> DRAFT: Scribe가 같은 레코드를 사유 반영해 재제출
     APPROVED --> [*]
-    REJECTED --> [*]
 ```
 
 Question/Answer와 달리 `submit_decision_record` 호출은 Human 결정을 기다리며 보류하지 않는다 — Scribe에게 돌려줄 "답"이 없고 단지 기록을 남기는 일방적 제출이라, 도구는 곧바로 성공 응답을 반환하고 Scribe의 턴이 끝난다. Human은 이후 `admin-cli`로 별도 조회·승인한다.
 
+**`REJECTED`는 종단 상태가 아니다(phase3-scope.md §2).** Question/Answer는 거절 사유가 도구 호출 응답으로 그 자리에서 돌아가 Agent가 재시도할 수 있지만, Decision Record는 Scribe가 응답을 기다리지 않으므로 같은 경로가 없다. 대신 거절 시 `REVISING`으로 돌아가고, Orchestrator가 §7.2의 최우선순위로 그 사유를 담아 Scribe를 다시 깨운다. Scribe가 `submit_decision_record`를 `revising_decision_record_id`와 함께 재호출하면 **새 레코드가 아니라 같은 레코드**가 갱신되고 다시 `DRAFT`로 돌아가 Human 승인을 기다린다.
+
 ### 7.4 Scribe Agent의 도구 제약 (§19 강제)
 
 Scribe Agent용 `ProcessManager`에는 `allowedTools`로 `submit_decision_record` 단 하나만 준다. `Bash`/`Edit`/`Write`/`ask_agent` 등은 애초에 주어지지 않으므로 "Scribe가 코드를 고치거나 다른 Agent에게 구현을 지시하는" 시나리오 자체가 구조적으로 불가능하다 — §19 "Scribe는 결정하지 않는다"를 프롬프트 지시가 아니라 도구 권한으로 강제한다.
+
+### 7.5 Decision Intervention (Phase 3, requirements.md §12.4)
+
+Agent가 A안/B안 같은 선택지를 제안하고 Human이 그중 하나를 고르거나 다른 안으로 바꾸는 경우다. mvp-scope.md에서 "MVP에서는 Direct Instruction으로 임시 대체 가능"이라고 미뤄둔 항목을 Phase 3에서 별도 트리거로 승격했다. Question/Answer와 달리 밑에 깔린 도구 호출이 없다 — Human이 `admin-cli decide-choice`로 결과를 곧바로 기록한다.
+
+| 필드 | 타입 | 설명 |
+|---|---|---|
+| `id` | string | |
+| `agentId` | string | 이 결정의 대상 Agent |
+| `chosenOption` / `rejectedOptions` | string | Human이 고른 안 / 기각한 안 |
+| `reasoning` | string | Human이 밝힌 근거 |
+| `requestedBy` | string | 기록한 Human |
+| `requestedAt` / `dispatchedAt` | datetime \| null | `dispatchedAt`은 Orchestrator가 Scribe에게 넘긴 시각(기록용, §7.2 dedup 조건에는 쓰이지 않는다 — Q/A와 같은 패턴으로 "이 요청을 트리거로 한 Decision Record가 이미 있는가"만 본다) |
+
+### 7.6 Decision History 재활용 (requirements.md §23, phase3-scope.md §3)
+
+과거 결정을 "관련 있어 보이는" 걸 자동으로 새 작업 프롬프트에 끼워넣지 않는다 — Activity Label, Decision Record 트리거와 같은 원칙("기계적으로 신뢰 가능한 신호만 자동화한다")을 따른다. 대신 `admin-cli search-decisions <keyword>`로 `background`/`problem`/`conclusion`/`relatedInfo`를 단순 텍스트(부분 일치) 검색하고, 사람이 결과를 보고 필요하면 `instruct-agent`/`resume-agent`의 프롬프트에 직접 붙여넣는다.
+
+### 7.7 Code ↔ Decision Record 추적성 (requirements.md §21~22, phase3-scope.md §4)
+
+`admin-cli show-decisions-for-file <path>`로 `relatedFilePaths`에 특정 경로가 포함된 Decision Record를 역으로 찾는다. git 커밋 연동은 하지 않는다 — Event Log에 아직 커밋 시점을 관측할 신호가 없다.
 
 ## 8. 전체 관계
 
@@ -259,12 +285,14 @@ erDiagram
     AGENT ||--o{ QUESTION : "asks (fromAgentId)"
     AGENT ||--o{ QUESTION : "receives (toAgentId)"
     AGENT ||--o{ INTERVENTION : "target of"
+    AGENT ||--o{ DECISION_INTERVENTION : "target of"
     QUESTION ||--o{ ANSWER : "answered by"
     QUESTION ||--o{ EVENT_LOG : "referenced by"
     ANSWER ||--o{ EVENT_LOG : "referenced by"
     INTERVENTION ||--o{ EVENT_LOG : "referenced by"
     QUESTION ||--o| DECISION_RECORD : "triggers (rejected)"
     ANSWER ||--o| DECISION_RECORD : "triggers (rejected)"
+    DECISION_INTERVENTION ||--o| DECISION_RECORD : "triggers"
 ```
 
 ## 9. 저장소 (권장)
@@ -275,4 +303,4 @@ MVP에서는 단일 SQLite 파일(예: `better-sqlite3`)을 권장한다. 스키
 
 ## 구현 현황
 
-이 스키마 그대로 `src/`에 구현되어 실제 `claude -p` 세션으로 검증됐다. 상세 내용과 실측 기록은 [architecture.md](architecture.md) §12 이하 참고.
+Phase 1(§1~6)과 Phase 2(§7.1~7.4 기본형)는 `src/`에 구현되어 실제 `claude -p` 세션으로 검증됐다. Phase 3(§7.5~7.7: Decision Intervention 트리거, REVISING 재작성 경로, History 검색, 파일 경로 추적성)는 `npx tsc --noEmit` 통과까지 확인됐고, 실제 세션 검증은 [backlog.md](backlog.md) 참고. 상세 내용과 실측 기록은 [architecture.md](architecture.md) §12 이하 참고.

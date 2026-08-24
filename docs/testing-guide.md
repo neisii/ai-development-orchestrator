@@ -104,6 +104,27 @@ buyer-bff의 질문은 거절되었다. 이미 API 스펙 문서 v2에 재고 �
 문서부터 확인했어야 한다.
 ```
 
+Decision Record를 `decide-decision <id> reject "사유"`로 거절하면 그 자리에서 끝나지 않는다. 같은 레코드가 `REVISING` 상태로 바뀌고, 다음 polling에서 Scribe가 그 사유를 담은 프롬프트로 다시 깨어나 **같은 레코드**를 고쳐서 재제출한다(`list-decisions`로 다시 조회하면 같은 id가 갱신된 초안으로 보인다).
+
+**2-3-1. Decision Intervention 체험하기 (Phase 3)**
+
+Agent가 A안/B안 같은 선택지를 냈고 Human이 그중 하나를 고른 상황을 `admin-cli`로 직접 기록할 수 있다. Question/Answer와 달리 도구 호출을 거치지 않는다 — 사람이 곧바로 기록한다.
+
+```bash
+npm run admin -- decide-choice buyer-bff "A안: REST로 통일" "B안: GraphQL 도입" "기존 팀 역량과 인프라가 REST에 맞춰져 있음"
+```
+
+다음 polling에서 Scribe가 자동으로 깨어나 Decision Record 초안을 만든다. 이후는 위 §2-3와 동일하게 `list-decisions`/`show-decision`/`decide-decision`으로 검토한다.
+
+**2-3-2. Decision History 검색 / 파일 경로로 역추적 (Phase 3)**
+
+```bash
+npm run admin -- search-decisions "REST"              # background/problem/conclusion/relatedInfo 부분 일치 검색
+npm run admin -- show-decisions-for-file src/api-client.ts   # relatedFilePaths에 이 경로가 포함된 Decision Record
+```
+
+`show-decisions-for-file`은 Scribe가 `submit_decision_record` 호출 시 `related_file_paths`로 실제 골라 넣은 경로와 정확히 일치해야 걸린다(부분 문자열 매치 아님).
+
 **2-4. Pause / Resume / Stop / Direct Instruction 체험하기**
 
 Agent가 `RUNNING`일 때(긴 답변을 작성 중일 때가 확인하기 좋다) 다른 터미널에서:
@@ -169,7 +190,10 @@ npm run admin -- resume-agent buyer-bff "여기에 실제 작업 지시를 적�
 | `list-events [agentId]` | Event Log 조회 |
 | `pause-agent <id>` / `resume-agent <id> [prompt]` / `stop-agent <id>` | 개입 |
 | `instruct-agent <id> <prompt>` | Direct Instruction (Pause+Resume 조합) |
-| `list-decisions [--all]` / `show-decision <id>` / `decide-decision <id> approve\|reject [사유]` | Decision Record 조회/승인/거절 |
+| `list-decisions [--all]` / `show-decision <id>` / `decide-decision <id> approve\|reject [사유]` | Decision Record 조회/승인/거절(거절 시 REVISING으로 돌아가 같은 레코드가 재작성됨) |
+| `decide-choice <agentId> "<선택한 안>" "<기각된 안>" "<근거>"` | Decision Intervention 기록 (Phase 3) |
+| `search-decisions <keyword>` | 과거 Decision Record 텍스트 검색 (Phase 3) |
+| `show-decisions-for-file <path>` | 특정 파일 경로와 관련된 Decision Record 역추적 (Phase 3) |
 
 ## 5. 초기화
 
