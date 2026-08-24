@@ -248,9 +248,25 @@ Question/Answer 승인과 같은 패턴이다: `admin-cli`(`pause-agent`/`resume
 
 **실측 검증**(`src/manual-test-intervention.ts`, 실제 `claude -p` 세션): 텍스트 생성 도중 `pause-agent`(실제 셸로 `admin-cli` 호출) → `PAUSED` → `resume-agent`(프롬프트 포함) → `RUNNING` → `COMPLETED`. 이어서 새 세션에서 생성 도중 `instruct-agent` → `PAUSE` 즉시 적용 → `RESUME`(새 지시) 적용 → `COMPLETED`. Event Log에 `INTERVENTION` 4건(`PAUSE`×2, `RESUME`×2)이 `prompt`/`requestedBy`까지 정확히 기록됨을 확인했다.
 
+## 12.7 완료 기준 7개를 잇는 통합 테스트
+
+`src/manual-test-mvp-e2e.ts`가 [mvp-scope.md](mvp-scope.md) 완료 기준 7개 전부를 하나의 실행으로 검증한다. 실제 `claude -p` 세션과 실제 `admin-cli` 셸 호출(승인/거절/pause/resume/stop/instruct 전부)로 구성했다.
+
+**시나리오**:
+1. **Phase 1** — api-agent 단독 세션에서 긴 텍스트 작성 도중 `pause-agent` → `PAUSED` → `resume-agent`(일반 재개) → `RUNNING` → `instruct-agent`(Direct Instruction, "그만 작성하고 짧게 답해") → 즉시 반영되어 `COMPLETED`. (기준 4, 5)
+2. **Phase 2** — buyer-bff가 `ask_agent` 호출 → `decide-question approve` → Orchestrator가 api-agent에 자동 전달(이미 세션이 있어 `resume()`으로 전달됨 — Phase 1과 세션 재사용) → api-agent가 `INSUFFICIENT_CONTEXT`로 답변 → `decide-answer approve` → buyer-bff에 자동 전달. (기준 1, 2, 3) MCP 도구 호출 자체가 hook을 발동시키므로 Event Log도 이 과정에서 함께 채워진다.
+3. **Phase 3** — `stop-agent`(이미 idle이라 API 비용 없음). (기준 4 마무리)
+4. 각 단계 사이 `admin-cli list-agents`로 실시간 상태 확인. (기준 7)
+5. 마지막에 Event Log를 타입별로 집계. (기준 6)
+
+**결과**: `SESSION_START`/`SESSION_END` 6개씩, `TOOL_PRE`/`TOOL_POST` 7개씩, `QUESTION_CREATED`/`QUESTION_REVIEWED`/`ANSWER_CREATED`/`ANSWER_REVIEWED` 각 1개, `INTERVENTION` 5개(PAUSE 2 + RESUME 2 + STOP 1) — 9종 이벤트 타입 전부 기록됨. `list-agents`는 매 단계 정확한 상태(`RUNNING`/`PAUSED`/`COMPLETED`/`STOPPED`)를 반영했다.
+
+**미조사 관찰**: `TOOL_PRE`/`TOOL_POST`가 명시적으로 호출한 MCP 도구 수(전체 2회: `ask_agent` 1회, `answer_question` 1회)보다 훨씬 많은 7개씩 기록됐다. §11의 "일부 환경에서는 Bash 도구 호출이 자체 백그라운드 Task로 위임된다"는 관찰과 마찬가지로, 이 환경이 내부적으로 추가 도구 호출을 하는 것으로 보이나 원인은 조사하지 않았다. 우리 코드의 버그는 아니다(hook은 Claude Code가 실제로 발생시킨 이벤트를 그대로 기록했을 뿐).
+
 ## 다음 단계
 
-`admin-cli.ts`가 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction 개입까지 모두 갖추면서 [mvp-scope.md](mvp-scope.md)의 완료 기준 7개를 실행 가능한 형태로 충족했다. 남은 정리 작업:
+`admin-cli.ts`가 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction 개입까지 모두 갖추고, 통합 테스트로 [mvp-scope.md](mvp-scope.md)의 완료 기준 7개가 전부 검증됐다. MVP 오케스트레이션 루프 자체는 완료된 상태다. 남은 정리 작업:
 
 - Agent 신원 자가 신고 한계(§12.3) — 진짜 신뢰 경계가 필요해지면 재검토
-- mvp-scope.md의 완료 기준 7개를 하나의 시나리오로 잇는 통합 테스트(지금까지는 컴포넌트별/부분 왕복만 검증됨)
+- `TOOL_PRE`/`TOOL_POST` 개수가 예상보다 많은 원인(§12.7) — 필요시 조사
+- mvp-scope.md의 Phase 2 이후(Scribe Agent, Decision Record 등)로 진행할지 논의

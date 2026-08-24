@@ -10,6 +10,7 @@
     "manual-test:orchestrator": "tsx src/manual-test-orchestrator.ts",
     "manual-test:hooks": "tsx src/manual-test-hooks.ts",
     "manual-test:intervention": "tsx src/manual-test-intervention.ts",
+    "manual-test:mvp-e2e": "tsx src/manual-test-mvp-e2e.ts",
     "mcp-server": "tsx src/mcp-server.ts",
     "hook-server": "tsx src/hook-server.ts",
     "admin": "tsx src/admin-cli.ts"

@@ -34,7 +34,7 @@ Human이 최소 2개의 독립 프로젝트를 각각 담당하는 Project Agent
 
 ## 완료 기준 (Definition of Done)
 
-다음 시나리오가 실제로 동작하면 MVP를 완료로 간주한다. **전 항목 실제 `claude -p` 세션으로 검증 완료** — 각 항목의 실측 기록은 [architecture.md](architecture.md)의 해당 섹션을 참고.
+다음 시나리오가 실제로 동작하면 MVP를 완료로 간주한다. **전 항목 실제 `claude -p` 세션으로 검증 완료** — 개별 검증 기록은 [architecture.md](architecture.md)의 해당 섹션을, 7개 전부를 하나로 잇는 통합 테스트는 [architecture.md §12.7](architecture.md#127-완료-기준-7개를-잇는-통합-테스트)(`src/manual-test-mvp-e2e.ts`)을 참고.
 
 1. ✅ API Agent, Buyer BFF Agent 2개를 Orchestrator가 각각 독립된 세션으로 실행할 수 있다. (architecture.md §12.4)
 2. ✅ Buyer BFF Agent가 정보 부족을 인지 → Question 생성 → Eligibility Check 통과 → Human이 터미널에서 승인/거절할 수 있다. (architecture.md §12.4)
