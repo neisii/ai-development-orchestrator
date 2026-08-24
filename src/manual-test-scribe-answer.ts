@@ -11,15 +11,16 @@ import { DecisionRecordStore } from "./decision-record-store.js";
 import { ProcessManager } from "./process-manager.js";
 import { Orchestrator } from "./orchestrator.js";
 
-// data-model.md §7 / architecture.md Phase 2 검증: 질문 거절(사유 포함) -> Scribe Agent
-// 자동 트리거 -> Decision Record 초안 작성 -> Human 승인까지 실제 claude -p 세션으로 확인한다.
+// data-model.md §7.2의 두 트리거 중 아직 실행 검증이 안 됐던 ANSWER_REJECTED 경로를 확인한다.
+// buyer-bff가 질문 -> 승인 -> api-agent가 답변 -> 이번엔 "답변"을 사유와 함께 거절 ->
+// Scribe Agent 자동 기상 -> Decision Record 초안 -> 승인.
 
-const workDir = mkdtempSync(join(tmpdir(), "ado-scribe-test-"));
+const workDir = mkdtempSync(join(tmpdir(), "ado-scribe-answer-test-"));
 const dbPath = join(workDir, "data.db");
 const mcpConfigPath = join(workDir, "mcp-config.json");
 const mcpServerPath = new URL("./mcp-server.ts", import.meta.url).pathname;
 
-process.env.ORCHESTRATOR_DB_PATH = dbPath; // admin-cli 셸 호출도 같은 DB를 보게 한다
+process.env.ORCHESTRATOR_DB_PATH = dbPath;
 
 writeFileSync(
   mcpConfigPath,
@@ -45,7 +46,7 @@ const decisionRecords = new DecisionRecordStore(db, eventLog);
 const orchestrator = new Orchestrator(store, agentStore, eventLog, interventionStore, decisionRecords, 1500);
 
 function makeAgent(id: string, tool: string): ProcessManager {
-  const projectPath = mkdtempSync(join(tmpdir(), `ado-scribe-${id}-`));
+  const projectPath = mkdtempSync(join(tmpdir(), `ado-scribe-answer-${id}-`));
   const pm = new ProcessManager({
     id,
     projectPath,
@@ -57,8 +58,10 @@ function makeAgent(id: string, tool: string): ProcessManager {
 }
 
 const buyerBff = makeAgent("buyer-bff", "ask_agent");
+const apiAgent = makeAgent("api-agent", "answer_question");
 const scribe = makeAgent("scribe-agent", "submit_decision_record");
 orchestrator.registerAgent(buyerBff);
+orchestrator.registerAgent(apiAgent);
 orchestrator.registerScribe(scribe);
 const pollTimer = orchestrator.startPolling();
 
@@ -94,19 +97,25 @@ async function waitForPmState(pm: ProcessManager, states: string[], timeoutMs = 
 async function main() {
   buyerBff.start(
     "You are agent 'buyer-bff'. Call the ask_agent tool exactly once: from_agent_id='buyer-bff', " +
-      "target_agent_id='api-agent', question='ProductResponse에 재고 수량 필드가 있어?', " +
+      "target_agent_id='api-agent', question='ProductResponse에 할인율 필드가 있어?', " +
       "why_needed에 적절한 근거를 적어라. 도구가 반환하는 내용을 그대로 보고해라."
   );
 
   const question = await waitUntil(() => store.listPendingQuestions()[0]);
   console.log(">>> 질문 도착:", question.text);
 
-  console.log(">>> admin-cli decide-question reject (사유 포함)");
+  console.log(">>> admin-cli decide-question approve (질문은 승인)");
+  admin("decide-question", question.id, "approve");
+
+  const answer = await waitUntil(() => store.listPendingAnswers()[0], 60000);
+  console.log(">>> 답변 도착:", answer.text, `(${answer.contentStatus})`);
+
+  console.log(">>> admin-cli decide-answer reject (사유 포함) — 이번 테스트의 핵심");
   admin(
-    "decide-question",
-    question.id,
+    "decide-answer",
+    answer.id,
     "reject",
-    "이미 API 스펙 문서 v2에 재고 필드가 명시돼 있음. 문서부터 확인했어야 함."
+    "할인율은 PricingResponse에서 내려주는 필드라 ProductResponse에서 답할 사항이 아님. 잘못된 응답 대상."
   );
 
   console.log(">>> Scribe Agent가 자동으로 깨어나 Decision Record 초안을 쓰기를 기다리는 중...");
@@ -115,17 +124,14 @@ async function main() {
   await waitForPmState(scribe, ["COMPLETED", "FAILED"]);
   console.log(">>> scribe-agent 최종 상태:", scribe.getState());
 
-  console.log(">>> admin-cli list-decisions (초안 확인)");
-  admin("list-decisions");
-
   const draft = await waitUntil(() => decisionRecords.listDrafts()[0], 10000);
-  console.log(">>> admin-cli show-decision (초안 내용)");
+  console.log(">>> admin-cli show-decision (trigger_type 확인 포함)");
   admin("show-decision", draft.id);
+  console.log(">>> DB상 triggerType:", decisionRecords.get(draft.id)?.triggerType);
+  console.log(">>> DB상 triggerAnswerId:", decisionRecords.get(draft.id)?.triggerAnswerId);
 
   console.log(">>> admin-cli decide-decision approve");
   admin("decide-decision", draft.id, "approve");
-
-  console.log(">>> 최종 Decision Record:", decisionRecords.get(draft.id));
 
   clearInterval(pollTimer);
 }

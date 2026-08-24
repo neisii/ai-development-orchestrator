@@ -300,10 +300,24 @@ Scribe를 실제로 실행해보다가 재현된 버그다. `isDeliverable()`에
 4. scribe-agent가 `submit_decision_record`를 정확히 한 번 호출, requirements.md §17의 9개 필드(배경/문제/제약사항/선택지/선택지 비교/판단 근거/결론/결정 주체/관련 정보)를 전부 채운 자연스러운 글로 작성 — 특히 "선택지 비교"에서 "이미 문서화된 정보를 다시 확인하는 절차가 중복된다"처럼, 주어진 사실을 넘어서는 창작 없이 딱 거절 사유에 근거한 서술만 냈다
 5. `admin-cli list-decisions` / `show-decision`으로 초안 확인 → `admin-cli decide-decision approve` → `APPROVED`로 확정
 
+`src/manual-test-scribe-answer.ts`로 나머지 하나(`ANSWER_REJECTED`) 경로도 별도로 확인했다: buyer-bff 질문 승인 → api-agent 답변 → `admin-cli decide-answer reject "..."` → scribe-agent 자동 기상 → 초안(`triggerType: ANSWER_REJECTED`, `triggerAnswerId`가 정확히 매칭) → 승인. 두 트리거 모두 실제 세션으로 확인 완료.
+
+### 13.4 알려진 이슈: 테스트 스크립트가 자연 종료되지 않음 (원인 미확정)
+
+`manual-test-scribe-answer.ts`를 실행했을 때 로직이 전부 끝나고 `clearInterval(pollTimer)`까지 지난 뒤에도 Node 프로세스가 스스로 종료되지 않는 현상이 두 번 재현됐다(280초 타임아웃까지 걸림). 조사한 내용과 조사하다가 멈춘 지점을 기록해둔다.
+
+- **`ProcessManager`/`Orchestrator` 자체는 결백**: API 호출 없이 각각 단독으로 최소 재현을 시도했을 때 — Agent 하나만 실행해 세션을 끝내거나, `Orchestrator`를 만들고 `startPolling()` 후 바로 `clearInterval()`만 호출하거나 — 두 경우 모두 활성 핸들 0개로 깨끗하게 자연 종료됐다. 즉 이 두 컴포넌트 단독으로는 구조적 누수가 없다.
+- **실패하는 시나리오에서 핸들을 직접 찍어보니**: `clearInterval` 직후 `process._getActiveHandles()`에 `ChildProcess` 1개(+연결된 `Socket` 3개)가 남아있었다. 정체는 Orchestrator가 api-agent에게 질문을 전달할 때 spawn한 그 `claude -p` 프로세스였고, `exitCode: null`, `killed: false`였다.
+- **모순점**: 콘솔에는 이미 `[api-agent] lifecycle -> COMPLETED`가 찍혀 있었다. `ProcessManager`가 `COMPLETED`로 판정하는 유일한 경로는 Node의 `child.on("close", ...)` 콜백인데, 덤프된 객체 안의 Node 내부 카운터(`_closesNeeded: 3, _closesGot: 0`)를 보면 이 객체 기준으로는 아직 `close` 이벤트가 발생하지 않은 것으로 보였다. 콘솔 로그와 핸들 스냅샷이 서로 다른 이야기를 하고 있는 셈이라, 정확한 인과관계를 확정하지 못했다.
+- **좀비 프로세스는 아니다**: 스크립트가 타임아웃으로 죽은 뒤 `ps aux`로 확인했을 때 관련 프로세스가 전혀 남아있지 않았다 — 결국엔(타임아웃이 강제로 죽이든, 스스로 정리되든) 정리된다.
+- **멈춘 지점**: 여기서 더 정확한 원인을 알려면 프로세스가 아직 살아있는 도중에 `lsof`/`strace`로 실시간으로 들여다봐야 하는데, 지금까지 이 조사 하나에 실제 `claude -p` 세션을 4번 소비한 상태라 비용 대비 확신을 더 올리기 어렵다고 판단해 멈췄다.
+- **지금 조치**: `manual-test-scribe.ts`/`manual-test-scribe-answer.ts` 둘 다 로직이 끝나면 `process.exit(0)`을 명시적으로 호출하도록 고쳐서, 이 현상과 무관하게 테스트가 항상 깔끔하게 끝나게 했다. 검증하려던 실제 내용(Decision Record 생성·승인)은 이 현상과 무관하게 두 트리거 모두 이미 확인이 끝난 상태다.
+- **다시 볼 조건**: Phase 3 이후 Orchestrator를 실제로 오래 띄워두는 상황이 되면(지금은 매번 스크립트를 새로 실행하는 방식이라 노출이 잘 안 됨), 정말 미세한 누수가 쌓이는지 다시 살펴볼 가치가 있다.
+
 ## 다음 단계
 
 Phase 1(오케스트레이션 루프)과 Phase 2(Scribe Agent/Decision Record) 모두 실제 `claude -p` 세션으로 검증 완료됐다. 남은 것:
 
 - Agent 신원 자가 신고 한계(§12.3) — Phase 4+ 선행 조건으로 지정됨, 지금 당장은 아님
-- Answer 거절 트리거(`ANSWER_REJECTED`) 경로는 코드는 Question과 대칭으로 구현했지만 실행 검증은 아직 안 함
+- 테스트 스크립트 자연 종료 안 되는 현상(§13.4) — 원인 미확정, Phase 3 이후 Orchestrator를 오래 띄워두게 되면 재조사
 - mvp-scope.md의 Phase 3(Decision Context 공식화, Decision History 재활용, Code ↔ Decision Record 추적성)으로 진행할지 논의
