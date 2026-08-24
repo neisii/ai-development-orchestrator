@@ -13,6 +13,7 @@
     "manual-test:mvp-e2e": "tsx src/manual-test-mvp-e2e.ts",
     "manual-test:scribe": "tsx src/manual-test-scribe.ts",
     "manual-test:scribe-answer": "tsx src/manual-test-scribe-answer.ts",
+    "demo": "tsx src/run-demo.ts",
     "mcp-server": "tsx src/mcp-server.ts",
     "hook-server": "tsx src/hook-server.ts",
     "admin": "tsx src/admin-cli.ts"
