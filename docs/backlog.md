@@ -7,6 +7,7 @@ architecture.md/mvp-scope.md 곳곳에 흩어져 있던 미해결 항목을 한 
 | 항목 | 조건 | 근거 |
 |---|---|---|
 | Agent 신원 자가 신고 | Agent가 3개 이상으로 늘거나, 실제(스크래치가 아닌) 코드베이스/외부 콘텐츠를 다루기 시작하는 시점 중 더 이른 쪽 | [architecture.md §12.3](architecture.md#123-알려진-한계-126에서-해결됨), [mvp-scope.md Phase 4+](mvp-scope.md#phase-2-이후와의-관계) |
+| 실제 프로젝트 경로 지정 기능 없음 | `AgentConfig.projectPath`(→ `claude`의 cwd)는 필드 자체는 있지만, `run-demo.ts`/`manual-test-*.ts`가 전부 빈 임시 디렉터리를 하드코딩해서 쓴다. 사용자가 CLI 인자나 설정 파일로 "buyer-bff는 이 경로, api-agent는 저 경로"를 지정하는 창구가 아직 없다. 실제 코드베이스에 처음 연결하는 시점에 필요(Agent 신원 자가 신고와 같은 트리거) | 사용자 질문으로 발견, `src/run-demo.ts`, `src/types.ts`(`AgentConfig`) |
 
 ## 원인 미확정 (재조사 조건부)
 
