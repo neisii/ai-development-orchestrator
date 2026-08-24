@@ -327,9 +327,19 @@ Scribe를 실제로 실행해보다가 재현된 버그다. `isDeliverable()`에
 
 두 수정 모두 실제로 다시 실행해서 에러가 사라지고 프로세스가 정상 spawn되는 것까지 확인했다. 다만 그 뒤 질문이 실제로 생성되는 단계는 그날 세션의 API 사용량 제한으로 완전히 끝까지 확인하지 못했다 — 코드 문제가 아니라 사용량 문제로 판단.
 
-### 14.2 알려진 한계: 실제 프로젝트에 연결하는 창구가 없음
+### 14.2 해결됨: `run.ts` + `orchestrator.config.json`
 
-`run-demo.ts`는 각 Agent의 `projectPath`를 `mkdtempSync`로 만든 빈 임시 디렉터리로 하드코딩한다. `AgentConfig.projectPath` 필드 자체는 있지만, 사용자가 "buyer-bff는 이 경로, api-agent는 저 경로"를 지정할 수 있는 CLI 인자나 설정 파일이 아직 없다 — 그래서 지금까지의 모든 시연에서 api-agent가 항상 "작업 디렉터리가 비어 있다"며 `INSUFFICIENT_CONTEXT`로 답했다. requirements.md가 원래 말하는 실제 대상(Data Serving API/Buyer BFF/Seller BFF 같은 진짜 프로젝트)에 붙이려면 이 기능이 필요하다. [backlog.md](backlog.md)에 기록.
+`run-demo.ts`는 각 Agent의 `projectPath`를 `mkdtempSync`로 만든 빈 임시 디렉터리로 하드코딩했다 — 그래서 지금까지의 모든 시연에서 api-agent가 항상 "작업 디렉터리가 비어 있다"며 `INSUFFICIENT_CONTEXT`로 답했다. `src/run.ts`(`npm run start`)를 새로 만들어 해결했다.
+
+- **설정 파일**: 저장소 루트의 `orchestrator.config.json`(gitignore됨, 실제 로컬 경로가 들어가므로)에 `{ agents: [{ id, projectPath }], hookPort }`를 적는다. 템플릿은 `orchestrator.config.example.json`. zod로 스키마를 검증하고, 각 `projectPath`가 실제로 존재하는지도 시작 시점에 확인해서, 잘못된 설정이면 Agent를 하나도 안 띄우고 바로 에러 메시지와 함께 종료한다(§14.1에서 배운 "에러가 안 보이면 원인을 못 찾는다"는 교훈을 반영).
+- **역할 고정 해제**: `run-demo.ts`는 buyer-bff=질문만/api-agent=답변만으로 역할을 고정했지만, 실제 프로젝트들은 서로 어느 방향으로든 묻고 답할 수 있어야 하므로 `run.ts`가 등록하는 모든 Project Agent는 `ask_agent`/`answer_question`을 둘 다 받는다. Scribe만 여전히 `submit_decision_record` 하나로 제한된다.
+- **자동 시작 없음**: `run-demo.ts`와 달리 첫 프롬프트를 자동으로 보내지 않는다 — 실제 프로젝트마다 첫 작업 내용이 다르므로, Human이 `admin-cli resume-agent <id> "..."`로 직접 지시한다. `Orchestrator.processInterventions()`의 RESUME 처리가 이미 `sessionId === null`이면 `start()`로 대신 처리하므로(§12.4~12.6 참고), 이 용도에 별도 admin-cli 명령을 새로 만들 필요가 없었다.
+
+### 14.3 실측 검증 (부분적)
+
+설정 검증·경로 해석·`claude` 프로세스 spawn까지는 실제로 확인했다: 진짜 파일이 든 임시 디렉터리 두 개(예: `ProductResponse.java`에 `stockQuantity` 필드가 실제로 있는 파일)를 만들어 `orchestrator.config.json`으로 등록하고 `npm run start`로 띄운 뒤, `admin-cli resume-agent buyer-bff "..."`로 첫 지시를 내렸다. 프로세스 인자를 확인하니 `--mcp-config`/`--settings` 둘 다 정확한 절대 경로로 들어가 있었고(§14.1의 버그가 재발하지 않음), Agent도 정상적으로 `RUNNING`까지 도달했다.
+
+다만 "api-agent가 실제로 그 파일을 읽고 `stockQuantity` 필드를 찾아서 답하는지"까지의 전체 왕복은 이번에는 확인하지 못했다 — buyer-bff의 첫 `ask_agent` 호출 자체가 2분 30초 넘게 응답이 안 왔다(CPU 시간도 거의 안 늘어남, API 응답 대기 중인 패턴). 그날 세션에서 `claude -p`를 매우 많이 호출한 뒤였어서 사용량 제한으로 추정하며, 코드나 설정에 문제가 있다고 볼 근거는 없었다. [backlog.md](backlog.md)에 "부분 검증" 상태로 남겨뒀다.
 
 ## 다음 단계
 

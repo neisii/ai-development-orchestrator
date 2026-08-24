@@ -7,13 +7,13 @@ architecture.md/mvp-scope.md 곳곳에 흩어져 있던 미해결 항목을 한 
 | 항목 | 조건 | 근거 |
 |---|---|---|
 | Agent 신원 자가 신고 | Agent가 3개 이상으로 늘거나, 실제(스크래치가 아닌) 코드베이스/외부 콘텐츠를 다루기 시작하는 시점 중 더 이른 쪽 | [architecture.md §12.3](architecture.md#123-알려진-한계-126에서-해결됨), [mvp-scope.md Phase 4+](mvp-scope.md#phase-2-이후와의-관계) |
-| 실제 프로젝트 경로 지정 기능 없음 | `AgentConfig.projectPath`(→ `claude`의 cwd)는 필드 자체는 있지만, `run-demo.ts`/`manual-test-*.ts`가 전부 빈 임시 디렉터리를 하드코딩해서 쓴다. 사용자가 CLI 인자나 설정 파일로 "buyer-bff는 이 경로, api-agent는 저 경로"를 지정하는 창구가 아직 없다. 실제 코드베이스에 처음 연결하는 시점에 필요(Agent 신원 자가 신고와 같은 트리거) | 사용자 질문으로 발견, `src/run-demo.ts`, `src/types.ts`(`AgentConfig`) |
 
 ## 원인 미확정 (재조사 조건부)
 
 | 항목 | 조건 | 근거 |
 |---|---|---|
 | 테스트 스크립트가 `clearInterval` 이후에도 자연 종료되지 않음 | `ProcessManager`/`Orchestrator` 단독으로는 결백 확인됨(무료 진단). 좀비 프로세스로 남지 않아 급하지 않음. Phase 3 이후 Orchestrator를 실제로 오래 띄워두게 되면(지금은 매번 스크립트를 새로 실행) 미세한 누수가 쌓이는지 재조사 | [architecture.md §13.4](architecture.md#134-알려진-이슈-테스트-스크립트가-자연-종료되지-않음-원인-미확정) |
+| `run.ts`(실제 프로젝트 경로 연결)의 전체 왕복 미실증 | 설정 파일 검증·경로 해석·`claude` 프로세스 spawn(올바른 절대 경로 인자 포함)까지는 실측 확인됨. "실제 코드 파일을 읽고 그 정보로 답하는지"까지의 전체 왕복은 그날 세션의 API 응답 지연(레이트리밋으로 추정, 2분 30초 넘게 무응답)으로 끝까지 확인 못 함. 코드 문제로 볼 근거는 없음(인자·설정 전부 정확) | [architecture.md §14.3](architecture.md#143-실측-검증-부분적) |
 
 ## 설계 공백 (아직 트리거 조건 없음, Phase 3에서 같이 다룰 후보)
 

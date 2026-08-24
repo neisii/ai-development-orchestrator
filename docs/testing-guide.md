@@ -1,6 +1,6 @@
 # 실 테스트 가이드
 
-지금까지 구현한 것을 직접 손으로 확인해보는 가이드다. "지켜보기"(자동 시나리오)와 "직접 개입하기"(인터랙티브 데모) 두 방식을 다룬다.
+지금까지 구현한 것을 직접 손으로 확인해보는 가이드다. "지켜보기"(자동 시나리오), "직접 개입하기"(빈 디렉터리 인터랙티브 데모), "실전 프로젝트에 연결하기"(진짜 경로) 세 방식을 다룬다.
 
 ## 사전 준비
 
@@ -124,7 +124,42 @@ npm run admin -- list-events buyer-bff  # 특정 Agent만
 npm run admin -- list-decisions --all   # DRAFT뿐 아니라 APPROVED/REJECTED까지
 ```
 
-## 3. admin-cli 명령어 전체 목록
+## 3. 실전 프로젝트에 연결하기
+
+`npm run demo`는 빈 임시 디렉터리로 메커니즘 자체를 확인하는 용도다. 실제 코드가 있는 프로젝트에 연결하려면 `npm run start`를 쓴다.
+
+```bash
+cp orchestrator.config.example.json orchestrator.config.json
+```
+
+`orchestrator.config.json`을 열어 실제 경로로 채운다(이 파일은 gitignore돼 있어 커밋되지 않는다):
+
+```json
+{
+  "agents": [
+    { "id": "buyer-bff", "projectPath": "/Users/me/projects/buyer-bff" },
+    { "id": "api-agent", "projectPath": "/Users/me/projects/data-serving-api" }
+  ],
+  "hookPort": 8790
+}
+```
+
+```bash
+npm run start
+```
+
+`npm run demo`와 다른 점 두 가지:
+
+- **역할이 고정돼 있지 않다**: 등록된 모든 Agent가 `ask_agent`/`answer_question`을 둘 다 가진다. 어느 프로젝트든 서로 질문하고 답할 수 있다.
+- **자동으로 시작되는 작업이 없다**: 실제 프로젝트마다 첫 작업이 다르므로, 사람이 직접 지시해야 한다.
+
+```bash
+npm run admin -- resume-agent buyer-bff "여기에 실제 작업 지시를 적는다"
+```
+
+이후는 [§2](#2-직접-개입해보기-인터랙티브-데모)와 동일하게 `list-questions`/`decide-question`/`list-answers`/`decide-answer` 등으로 진행한다.
+
+## 4. admin-cli 명령어 전체 목록
 
 | 명령 | 설명 |
 |---|---|
@@ -136,18 +171,20 @@ npm run admin -- list-decisions --all   # DRAFT뿐 아니라 APPROVED/REJECTED�
 | `instruct-agent <id> <prompt>` | Direct Instruction (Pause+Resume 조합) |
 | `list-decisions [--all]` / `show-decision <id>` / `decide-decision <id> approve\|reject [사유]` | Decision Record 조회/승인/거절 |
 
-## 4. 초기화
+## 5. 초기화
 
-데모 상태를 지우고 처음부터 다시 시작하려면:
+상태를 지우고 처음부터 다시 시작하려면(데모/실전 공통):
 
 ```bash
-# 터미널 1에서 Ctrl+C로 데모 종료 후
+# 터미널 1에서 Ctrl+C로 종료 후
 rm -rf .orchestrator
-npm run demo
+npm run demo   # 또는 npm run start
 ```
 
-## 5. 문제 해결
+## 6. 문제 해결
 
 - **Agent가 `STARTING` 직후 바로 `FAILED`로 바뀐다**: 콘솔에 `[agent-id] ...` 형태로 원인이 같이 찍힌다(예: 잘못된 `--mcp-config` 경로, 인증 문제). 이 메시지를 보고 원인을 확인한다.
 - **한참 기다려도 질문/답변이 안 생긴다**: `ps aux | grep "claude -p"`로 프로세스가 살아있는지 확인한다. 살아있는데 CPU 시간이 거의 안 늘어나면 API 응답을 기다리는 중 — 계정 사용량 제한(5시간 rate limit)에 걸렸을 가능성이 크다. 시간을 두고 다시 시도한다.
-- **`npm run demo`를 두 번 동시에 띄웠다**: 같은 `.orchestrator/data.db`를 두 프로세스가 동시에 쓰면서 Agent 상태가 꼬인다. 하나를 반드시 끄고(`Ctrl+C` 또는 `pkill -f run-demo.ts`), `.orchestrator`를 지운 뒤 하나만 다시 띄운다.
+- **`npm run demo`/`npm run start`를 두 번 동시에 띄웠다**: 같은 `.orchestrator/data.db`를 두 프로세스가 동시에 쓰면서 Agent 상태가 꼬인다. 하나를 반드시 끄고(`Ctrl+C` 또는 `pkill -f run-demo.ts` / `pkill -f run.ts`), `.orchestrator`를 지운 뒤 하나만 다시 띄운다.
+- **`npm run start`가 "설정 파일을 찾을 수 없습니다"로 바로 종료된다**: `orchestrator.config.json`이 없다는 뜻. `cp orchestrator.config.example.json orchestrator.config.json` 후 실제 경로로 채운다.
+- **`npm run start`가 "projectPath가 존재하지 않습니다"로 종료된다**: `orchestrator.config.json`에 적은 경로가 실제로 없는 디렉터리다. 절대 경로인지, 오타는 없는지 확인한다.

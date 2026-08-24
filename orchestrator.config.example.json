@@ -1,0 +1,7 @@
+{
+  "agents": [
+    { "id": "buyer-bff", "projectPath": "/absolute/path/to/buyer-bff" },
+    { "id": "api-agent", "projectPath": "/absolute/path/to/data-serving-api" }
+  ],
+  "hookPort": 8787
+}
