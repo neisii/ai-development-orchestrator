@@ -316,8 +316,4 @@ Scribe를 실제로 실행해보다가 재현된 버그다. `isDeliverable()`에
 
 ## 다음 단계
 
-Phase 1(오케스트레이션 루프)과 Phase 2(Scribe Agent/Decision Record) 모두 실제 `claude -p` 세션으로 검증 완료됐다. 남은 것:
-
-- Agent 신원 자가 신고 한계(§12.3) — Phase 4+ 선행 조건으로 지정됨, 지금 당장은 아님
-- 테스트 스크립트 자연 종료 안 되는 현상(§13.4) — 원인 미확정, Phase 3 이후 Orchestrator를 오래 띄워두게 되면 재조사
-- mvp-scope.md의 Phase 3(Decision Context 공식화, Decision History 재활용, Code ↔ Decision Record 추적성)으로 진행할지 논의
+Phase 1(오케스트레이션 루프)과 Phase 2(Scribe Agent/Decision Record) 모두 실제 `claude -p` 세션으로 검증 완료됐다. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.

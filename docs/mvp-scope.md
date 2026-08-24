@@ -48,7 +48,7 @@ Human이 최소 2개의 독립 프로젝트를 각각 담당하는 Project Agent
 
 ## Phase 2 이후와의 관계
 
-MVP가 검증되면 다음 순서로 확장한다.
+MVP가 검증되면 다음 순서로 확장한다. 미해결 항목을 모아둔 목록은 [backlog.md](backlog.md) 참고.
 
 - **Phase 2 (완료)**: Scribe Agent 도입, 최소 Decision Record(배경/문제/선택지/결정/근거) 기록. 실제 `claude -p` 세션으로 검증됨 — [architecture.md §13](architecture.md#13-phase-2-scribe-agent와-decision-record) 참고.
 - **Phase 3**: Decision Context 공식화, Decision History 재활용, Code ↔ Decision Record 추적성
