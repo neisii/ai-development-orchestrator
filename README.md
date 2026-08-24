@@ -23,6 +23,7 @@ Human-in-the-loop orchestration system for coordinating multiple AI agents acros
 - [요구사항 (requirements.md)](docs/requirements.md) — 프로젝트 목적, 운영 모델, Human/Agent 역할, 통신·질문/답변·Human Intervention·Scribe·Decision Record 규칙, 핵심 원칙
 - [핵심 개념 (glossary.md)](docs/glossary.md)
 - [MVP 범위 (mvp-scope.md)](docs/mvp-scope.md) — 1단계에서 검증할 최소 범위와 완료 기준
+- [Phase 3 범위 (phase3-scope.md)](docs/phase3-scope.md) — Decision Context 확장, History 검색, Code 추적성 범위 정의
 - [아키텍처 (architecture.md)](docs/architecture.md) — Claude Code 헤드리스/hook/MCP를 조합한 오케스트레이터 설계, 실측 검증 기록
 - [데이터 모델 (data-model.md)](docs/data-model.md) — Agent/Question/Answer/Event Log/Intervention/Decision Record 스키마
 - [다이어그램 (diagrams.md)](docs/diagrams.md) — 유스케이스 다이어그램, Question/Answer 왕복·Human Intervention 시퀀스 다이어그램
