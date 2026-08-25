@@ -128,4 +128,14 @@ Aug 25 13:25:01 2026   # 수정 전 그대로, 이번엔 안 건드림
 
 레이트리밋도 API 쪽 지연도 아니었다. `src/run.ts`/`src/run-demo.ts`가 MCP 서버 서브프로세스에 `ORCHESTRATOR_DB_PATH`를 넘기지 않아, 각 Agent가 자기 프로젝트 디렉터리 밑에 아무도 안 보는 고아 DB를 만들어 쓰던 결정론적 버그였다. 수정 후 전체 왕복이 즉시(수 초~수십 초 단위) 정상 동작함을 확인했다.
 
-**남은 것**: 이 버그가 Phase 3 흐름(Decision Intervention, 거절 재작성)에서도 똑같이 막혀 있었으므로, 같은 수정으로 Phase 3 왕복도 풀렸을 가능성이 높다 — 별도로 재시도해서 확인 필요.
+## Phase 3 재시도 결과 (2026-08-25)
+
+같은 수정으로 Phase 3 왕복도 풀렸다. `run.ts`(실제 파일이 있는 `/tmp/ado-diag/read-test`를 가리키는 config)로 재현:
+
+1. **Decision Intervention → 자동 초안**: `admin-cli decide-choice buyer-bff ...` → 다음 polling에서 Scribe 자동 기동 → DRAFT 생성 확인.
+2. **거절 → REVISING → 같은 레코드 재작성**: `decide-decision <id> reject "학습 곡선 리스크도 넣어줘"` → Scribe가 정확히 그 내용을 반영해 같은 id로 재제출(선택지 비교/판단 근거에 "학습 곡선" 문구 추가됨) 확인.
+3. **search-decisions**: 실제 키워드("GraphQL")로 검색되고, 없는 키워드로는 안 걸림 확인.
+4. **relatedFilePaths 채워짐**: buyer-bff가 먼저 `ProductResponse.txt`를 Read하게 한 뒤, 그 파일 내용과 명시적으로 연관된 두 번째 Decision Intervention을 트리거하니 Scribe가 `related_file_paths`에 정확히 그 파일 경로를 채워 제출함 확인.
+5. **show-decisions-for-file**: 그 정확한 경로로 역조회 성공, 상위 디렉터리(부분 경로)로는 안 걸림(오탐 없음) 확인.
+
+phase3-scope.md의 완료 기준 5개 전부 실제 `claude -p` 세션으로 확인 완료.

@@ -359,10 +359,18 @@ Scribe를 실제로 실행해보다가 재현된 버그다. `isDeliverable()`에
 - **`relatedFilePaths`(Code ↔ Decision Record 추적성)**: `Orchestrator.recentFilePaths(agentId)`가 Event Log의 `TOOL_PRE` 이벤트 중 `Read`/`Edit`/`Write`의 `tool_input.file_path`를 모아 Scribe 프롬프트에 참고 목록으로 넣어준다. "관련 있어 보이는" 판단은 자동화하지 않고(§13, activity label과 같은 원칙) Scribe가 그중 골라 `related_file_paths`로 제출하게 한다. DB에는 `event_log.payload`와 같은 패턴으로 JSON 텍스트로 저장한다.
 - **`search-decisions`/`show-decisions-for-file`**: 둘 다 SQLite `LIKE` 기반 단순 텍스트 검색이다(임베딩/의미 검색 아님). `show-decisions-for-file`은 LIKE로 후보를 좁힌 뒤 JS에서 `relatedFilePaths.includes(path)`로 한 번 더 걸러서, 경로 부분 문자열(예: `src/api-client`가 `src/api-client.ts`에 매치)로 오탐되지 않게 했다.
 
-### 15.1 실측 검증 (스토어 계층만, API 세션 미실증)
+### 15.1 실측 검증 (완료)
 
-`npx tsc --noEmit -p tsconfig.json`은 전체 통과했다. 별도로 `claude -p` 세션 없이 스토어 클래스만 직접 두드리는 스모크 테스트를 짜서, Decision Intervention 생성 → dedup 체크 → Decision Record 생성(파일 경로 포함) → 거절(`REVISING` 전이 확인) → 재작성(`update()`로 같은 id 갱신, `DRAFT` 복귀 확인) → 승인 → `search`/`listByFilePath`(부분 문자열 오탐 없음 확인)까지 전 구간을 실행해 통과시켰다. 당시엔 §14.3의 "도구 호출이 낀 세션에서만 반복되는 원인 불명의 지연" 때문에 Scribe Agent가 실제로 `submit_decision_record`를 새 필드들과 함께 호출하는 전체 왕복까지는 실측하지 못했는데, 그 지연의 정체가 §14.4에서 밝혀지고 고쳐졌으므로 Phase 3도 같은 버그로 막혀 있었을 가능성이 높다 — Phase 3 자체의 실제 세션 재시도는 아직 안 함(다음 단계 후보).
+`npx tsc --noEmit -p tsconfig.json` 전체 통과 + `claude -p` 세션 없이 스토어 클래스만 직접 두드리는 스모크 테스트(생성 → dedup → 거절 `REVISING` 전이 → 재작성 `DRAFT` 복귀 → 승인 → `search`/`listByFilePath`) 통과에 이어, §14.4에서 원인 불명 지연 버그를 고친 뒤 `run.ts`로 실제 `claude -p` 세션 왕복까지 재현했다.
+
+- **DoD 1 (Decision Intervention → 자동 초안)**: `admin-cli decide-choice buyer-bff "A안: REST로 통일" "B안: GraphQL 도입" "..."` → 다음 polling에서 Scribe 자동 기동 → DRAFT 생성 확인.
+- **DoD 2 (거절 → 같은 레코드 재작성)**: `decide-decision <id> reject "학습 곡선 리스크도 넣어줘"` → Scribe가 정확히 그 내용을 반영해 같은 id로 재제출(선택지 비교/판단 근거에 "학습 곡선" 문구가 실제로 추가됨) 확인.
+- **DoD 3 (search-decisions)**: 실제 키워드로 검색되고, 없는 키워드로는 안 걸림 확인.
+- **DoD 4 (relatedFilePaths)**: buyer-bff가 실제 파일(`ProductResponse.txt`)을 먼저 Read하게 한 뒤, 그 내용과 명시적으로 연관된 Decision Intervention을 트리거하니 Scribe가 `related_file_paths`에 정확히 그 경로를 채워 제출함 확인.
+- **DoD 5 (show-decisions-for-file)**: 그 정확한 경로로 역조회 성공, 상위 디렉터리(부분 경로)로는 오탐 없음 확인.
+
+세션 로그와 절차는 [investigation-mcp-session-delay.md §Phase 3 재시도 결과](investigation-mcp-session-delay.md#phase-3-재시도-결과-2026-08-25) 참고.
 
 ## 다음 단계
 
-Phase 1(오케스트레이션 루프)과 Phase 2(Scribe Agent/Decision Record) 모두 실제 `claude -p` 세션으로 검증 완료됐고, 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 마침내 실측 확인됐다. Phase 3(§15)는 코드·스토어 계층 검증까지 마쳤고, 왕복을 막던 근본 원인(§14.4)도 해소됐지만 Phase 3 자체의 실제 세션 재시도는 아직 남았다. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.
+Phase 1(오케스트레이션 루프), Phase 2(Scribe Agent/Decision Record), Phase 3(§15)까지 전부 실제 `claude -p` 세션으로 검증 완료됐다. 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 원인 불명 지연의 정체(`ORCHESTRATOR_DB_PATH` 누락)를 밝히고 고친 뒤 확인됐고, 같은 수정으로 Phase 3(§15.1) 왕복도 함께 풀렸다. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.

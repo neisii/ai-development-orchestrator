@@ -1,6 +1,6 @@
 # Phase 3 범위 정의
 
-**상태: 구현 완료, 실제 세션 왕복 재시도 대기.** 아래 범위 그대로 `src/`에 구현됐고 `npx tsc --noEmit` 통과와 스토어 계층 직접 테스트로 코드 정확성은 확인됐다. 완료 기준 4번이 요구하는 "실제 세션으로 확인"을 막고 있던 `run.ts`/`run-demo.ts`의 `ORCHESTRATOR_DB_PATH` 누락 버그는 [architecture.md §14.4](architecture.md#144-해결됨-orchestrator_db_path-누락으로-인한-고아-db)에서 해결됐지만, Phase 3 흐름 자체의 재시도는 아직 안 함. 구현 상세는 [architecture.md §15](architecture.md#15-phase-3-decision-intervention-트리거--거절-재작성-경로--history-검색--파일-추적성) 참고.
+**상태: 구현 완료, 완료 기준 5개 전부 실제 `claude -p` 세션으로 검증 완료(2026-08-25).** 아래 범위 그대로 `src/`에 구현됐고, `run.ts`로 Decision Intervention 자동 트리거 → 거절 재작성 → 검색 → 파일 경로 채움 → 역조회까지 실측 확인했다. 자세한 세션 기록은 [investigation-mcp-session-delay.md §Phase 3 재시도 결과](investigation-mcp-session-delay.md#phase-3-재시도-결과-2026-08-25), 구현 상세는 [architecture.md §15](architecture.md#15-phase-3-decision-intervention-트리거--거절-재작성-경로--history-검색--파일-추적성) 참고.
 
 [mvp-scope.md](mvp-scope.md)/[backlog.md](backlog.md)에서 Phase 3로 미뤄둔 세 가지(Decision Context 공식화, Decision History 재활용, Code ↔ Decision Record 추적성)와, 이미 백로그에 있던 "Decision Record 거절 시 재작성 경로 없음"을 함께 다룬다. MVP 때와 같은 원칙 — 구현 전에 범위부터 정의하고, 확신 없는 자동화(휴리스틱)보다는 사람이 개입하는 명시적 경로를 우선한다 — 을 그대로 따른다.
 
@@ -48,11 +48,13 @@ Question/Answer와 같은 패턴을 그대로 적용한다: `decide-decision <id
 
 ## 완료 기준 (Definition of Done)
 
-1. `Decision Intervention`(A안/B안 선택)을 트리거로 Decision Record 초안이 자동 생성된다.
-2. `decide-decision <id> reject "사유"` 후 같은 레코드가 갱신된 초안으로 다시 나타난다(새 레코드 아님).
-3. `admin-cli search-decisions <keyword>`로 과거 결정을 찾을 수 있다.
-4. 새로 생성되는 Decision Record에 관련 파일 경로가 최소 하나 이상 채워진 사례가 실제 세션으로 확인된다.
-5. `admin-cli show-decisions-for-file <path>`로 그 Decision Record를 역으로 찾을 수 있다.
+1. ✅ `Decision Intervention`(A안/B안 선택)을 트리거로 Decision Record 초안이 자동 생성된다.
+2. ✅ `decide-decision <id> reject "사유"` 후 같은 레코드가 갱신된 초안으로 다시 나타난다(새 레코드 아님).
+3. ✅ `admin-cli search-decisions <keyword>`로 과거 결정을 찾을 수 있다.
+4. ✅ 새로 생성되는 Decision Record에 관련 파일 경로가 최소 하나 이상 채워진 사례가 실제 세션으로 확인된다.
+5. ✅ `admin-cli show-decisions-for-file <path>`로 그 Decision Record를 역으로 찾을 수 있다.
+
+전부 [investigation-mcp-session-delay.md §Phase 3 재시도 결과](investigation-mcp-session-delay.md#phase-3-재시도-결과-2026-08-25)에서 실제 `claude -p` 세션으로 확인됨(2026-08-25).
 
 ## 제외 범위 (이번 Phase 3에서 안 함)
 
