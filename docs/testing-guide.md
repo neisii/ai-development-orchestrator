@@ -187,7 +187,7 @@ npm run admin -- resume-agent buyer-bff "여기에 실제 작업 지시를 적�
 | `list-questions` / `decide-question <id> approve\|reject [사유]` | 질문 조회/승인/거절 |
 | `list-answers` / `decide-answer <id> approve\|reject [사유]` | 답변 조회/승인/거절 |
 | `list-agents` | Agent 상태(Lifecycle State + Activity Label) |
-| `list-events [agentId]` | Event Log 조회 |
+| `list-events [agentId]` | Event Log 조회. `ASSISTANT_MESSAGE`(도구 호출 없는 일반 텍스트 응답)는 내용 미리보기도 같이 출력 |
 | `pause-agent <id>` / `resume-agent <id> [prompt]` / `stop-agent <id>` | 개입 |
 | `instruct-agent <id> <prompt>` | Direct Instruction (Pause+Resume 조합) |
 | `list-decisions [--all]` / `show-decision <id>` / `decide-decision <id> approve\|reject [사유]` | Decision Record 조회/승인/거절(거절 시 REVISING으로 돌아가 같은 레코드가 재작성됨) |

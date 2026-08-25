@@ -171,12 +171,13 @@ Hook/MCP에서 실제로 오는 원시 이벤트를 그대로 보존한다. "파
 | `DECISION_RECORD_REVISED` | mcp | Scribe Agent가 `revising_decision_record_id`로 같은 레코드를 재제출 (§7.3) |
 | `DECISION_RECORD_REVIEWED` | orchestrator | Human이 Decision Record 승인/거절 (§7) |
 | `DECISION_INTERVENTION_REQUESTED` | orchestrator | Human이 `decide-choice`로 Decision Intervention을 기록 (§7.5) |
+| `ASSISTANT_MESSAGE` | orchestrator | Agent가 도구 호출 없이 텍스트로만 응답 (§5.3) |
 
-### 5.3 다루지 않는 것: 도구 호출 없는 일반 텍스트 응답
+### 5.3 도구 호출 없는 일반 텍스트 응답 (해결됨)
 
-§5.2의 `type` 목록은 hook이 걸리는 지점(세션 시작/종료, 도구 호출 전후)과 MCP 도구 호출뿐이다. Agent가 도구를 쓰지 않고 그냥 말로만 답하는 경우(예: 단순 인사, 확인 질문에 대한 서술형 답변)는 **어디에도 기록되지 않는다.** `ProcessManager`는 claude 프로세스의 stdout(`stream-json`)에서 `session_id`와 `system/init` 이벤트만 상태 전환용으로 읽고(`src/process-manager.ts:157-168`), `assistant` 타입 메시지의 텍스트 자체는 읽지도 저장하지도 않는다. hook도 도구/세션 경계에만 걸리므로 일반 텍스트 출력에는 원래 안 걸린다.
+§5.2의 나머지 `type`은 hook이 걸리는 지점(세션 시작/종료, 도구 호출 전후)과 MCP 도구 호출뿐이라, Agent가 도구를 안 쓰고 말로만 답하는 경우(단순 인사, 서술형 답변 등)는 한동안 어디에도 안 남았다. `ProcessManager`가 claude 프로세스의 stdout(`stream-json`)에서 `session_id`/`system.init`만 상태 전환용으로 읽고, `assistant` 타입 메시지의 텍스트 콘텐츠 블록은 무시했기 때문이다(hook도 도구/세션 경계에만 걸리므로 원래 이 경로는 못 잡는다).
 
-이건 §1의 "원시 데이터와 파생 표시를 분리한다" 원칙과는 다른 종류의 공백이다 — 파생을 안 한 게 아니라 원시 데이터 자체를 안 모으고 있다. requirements.md §13의 Event Log 예시(파일 읽기/수정, 명령 실행, 테스트, 오류, 질문/답변 생성, Human Intervention)에도 "도구 호출 없는 일반 응답"은 처음부터 대상으로 논의된 적이 없다. 실사용 중 발견한 미해결 항목이며, 자세한 내용은 [backlog.md](backlog.md) 참고.
+이건 §1의 "원시 데이터와 파생 표시를 분리한다" 원칙과는 다른 종류의 공백이었다 — 파생을 안 한 게 아니라 원시 데이터 자체를 안 모으고 있었다. `resume-agent buyer-bff "안녕"` 실사용 중 발견됐고, `ProcessManager`가 `assistant` 메시지의 `content` 배열에서 `type: "text"` 블록만 뽑아 `assistant-message` 이벤트로 알리면(`src/process-manager.ts`), `Orchestrator`가 이를 구독해 `ASSISTANT_MESSAGE`로 Event Log에 기록하도록 고쳤다(`src/orchestrator.ts`의 `recordAssistantMessage`). `admin-cli list-events`도 이 타입이면 텍스트 미리보기를 같이 보여준다. 실측 검증은 [architecture.md §16](architecture.md#16-도구-호출-없는-일반-텍스트-응답-로깅) 참고.
 
 ## 6. Intervention
 

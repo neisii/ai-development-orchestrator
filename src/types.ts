@@ -124,7 +124,8 @@ export type EventType =
   | "DECISION_RECORD_CREATED"
   | "DECISION_RECORD_REVISED"
   | "DECISION_RECORD_REVIEWED"
-  | "DECISION_INTERVENTION_REQUESTED";
+  | "DECISION_INTERVENTION_REQUESTED"
+  | "ASSISTANT_MESSAGE";
 
 export type EventSource = "hook" | "mcp" | "orchestrator";
 

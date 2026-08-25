@@ -103,6 +103,10 @@ switch (command) {
     }
     for (const e of events) {
       console.log(`[${e.timestamp}] ${e.agentId} ${e.type} (${e.source})`);
+      if (e.type === "ASSISTANT_MESSAGE") {
+        const text = (e.payload as { text?: string }).text ?? "";
+        console.log(`  ${text.length > 200 ? text.slice(0, 200) + "..." : text}`);
+      }
     }
     break;
   }

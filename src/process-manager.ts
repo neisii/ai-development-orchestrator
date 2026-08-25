@@ -14,6 +14,12 @@ export interface StreamEvent {
 export declare interface ProcessManager {
   on(event: "event", listener: (e: StreamEvent) => void): this;
   on(event: "lifecycle-change", listener: (state: AgentLifecycleState) => void): this;
+  /**
+   * docs/data-model.md §5.3(예전 "다루지 않는 것"): 도구 호출 없는 일반 텍스트 응답은
+   * hook도 안 걸리고 여기서도 무시됐었다. stream-json의 assistant 메시지에서 text
+   * 콘텐츠 블록만 뽑아 알려준다 — Event Log 기록은 Orchestrator가 구독해서 한다.
+   */
+  on(event: "assistant-message", listener: (text: string) => void): this;
 }
 
 export class ProcessManager extends EventEmitter {
@@ -164,6 +170,17 @@ export class ProcessManager extends EventEmitter {
 
     if (obj.type === "system" && obj.subtype === "init") {
       this.setLifecycleState("RUNNING");
+    }
+
+    if (obj.type === "assistant") {
+      const message = obj.message as { content?: unknown[] } | undefined;
+      for (const block of message?.content ?? []) {
+        if (typeof block !== "object" || block === null) continue;
+        const b = block as { type?: unknown; text?: unknown };
+        if (b.type === "text" && typeof b.text === "string" && b.text.length > 0) {
+          this.emit("assistant-message", b.text);
+        }
+      }
     }
   }
 

@@ -41,6 +41,7 @@ export class Orchestrator {
     this.agents.set(pm.id, pm);
     this.persistState(pm);
     pm.on("lifecycle-change", () => this.persistState(pm));
+    pm.on("assistant-message", (text) => this.recordAssistantMessage(pm, text));
   }
 
   /** data-model.md §7: Scribe는 Project Agent 목록(agents)과 분리해서, Q&A 전달 대상으로 잡히지 않게 한다. */
@@ -48,6 +49,7 @@ export class Orchestrator {
     this.scribe = pm;
     this.persistState(pm);
     pm.on("lifecycle-change", () => this.persistState(pm));
+    pm.on("assistant-message", (text) => this.recordAssistantMessage(pm, text));
   }
 
   private persistState(pm: ProcessManager): void {
@@ -58,6 +60,17 @@ export class Orchestrator {
       sessionId: state.sessionId,
       pid: state.pid,
       lifecycleState: state.lifecycleState,
+    });
+  }
+
+  /** data-model.md §5.3: 도구 호출 없는 일반 텍스트 응답도 Event Log에 남긴다. */
+  private recordAssistantMessage(pm: ProcessManager, text: string): void {
+    this.eventLog.record({
+      agentId: pm.id,
+      sessionId: pm.getState().sessionId,
+      type: "ASSISTANT_MESSAGE",
+      source: "orchestrator",
+      payload: { text },
     });
   }
 

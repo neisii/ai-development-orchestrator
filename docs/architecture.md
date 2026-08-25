@@ -185,7 +185,7 @@ Agent 상태(`ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등)는 오케스트�
 - ~~`ask_agent` MCP 도구 호출에 대한 응답을 오케스트레이터가 얼마나 오래 보류할 수 있는지(타임아웃 존재 여부)~~ → §4.1 실측 검증에서 해소. 최소 5분까지는 타임아웃 없음. 그 이상 장시간 보류는 별도 안전장치 필요
 - 위 기능들의 정확한 도입 버전 (공식 문서에 명시 없음, 필요시 Anthropic 문의)
 - 일부 환경에서는 Bash 도구 호출이 즉시 실행되지 않고 자체 백그라운드 Task로 위임되어(`task_started`/`task_notification` 이벤트) 예상보다 훨씬 빨리 끝나는 것이 관찰됐다. 이게 특정 환경/플러그인 설정에 국한된 동작인지, 일반적인 Claude Code 동작인지 확인되지 않았다. 오케스트레이터가 "도구 실행 중 여부"를 판단할 때 이 가능성을 감안해야 할 수 있다.
-- 도구 호출 없는 일반 텍스트 응답이 Event Log 어디에도 안 남는다. `resume-agent`로 도구를 안 쓰는 프롬프트(예: 단순 인사)를 보내보다가 발견했다 — 자세한 원인은 [data-model.md §5.3](data-model.md#53-다루지-않는-것-도구-호출-없는-일반-텍스트-응답), 처리 여부는 [backlog.md](backlog.md) 참고.
+- ~~도구 호출 없는 일반 텍스트 응답이 Event Log 어디에도 안 남는다.~~ → [§16](#16-도구-호출-없는-일반-텍스트-응답-로깅)에서 해소됨.
 
 ## 12. 구현 현황
 
@@ -371,6 +371,14 @@ Scribe를 실제로 실행해보다가 재현된 버그다. `isDeliverable()`에
 
 세션 로그와 절차는 [investigation-mcp-session-delay.md §Phase 3 재시도 결과](investigation-mcp-session-delay.md#phase-3-재시도-결과-2026-08-25) 참고.
 
+## 16. 도구 호출 없는 일반 텍스트 응답 로깅
+
+backlog.md에 "설계 공백"으로 남아있던 문제를 고쳤다. `resume-agent buyer-bff "안녕"`처럼 도구 호출이 필요 없는 프롬프트를 보내면, Agent는 정상 응답하지만 그 내용이 콘솔에도 Event Log에도 전혀 안 남았다 — hook은 도구/세션 경계에만 걸리고, `ProcessManager`도 stdout(`stream-json`)에서 `session_id`/`system.init`만 상태 전환용으로 읽었을 뿐 `assistant` 메시지의 텍스트 콘텐츠는 무시했기 때문이다(data-model.md §5.3 참고).
+
+**수정**: `ProcessManager.handleStreamEvent()`가 `type: "assistant"` 메시지의 `content` 배열에서 `type: "text"`인 블록만 뽑아 새 `assistant-message` 이벤트로 emit한다(`src/process-manager.ts`). `Orchestrator`는 `registerAgent`/`registerScribe`에서 이 이벤트를 구독해 새 `ASSISTANT_MESSAGE` 타입으로 Event Log에 기록한다(`recordAssistantMessage`, `src/orchestrator.ts`). `admin-cli list-events`도 이 타입이면 텍스트 미리보기(최대 200자)를 같이 출력하도록 고쳐서, 실제로 CLI에서 바로 확인 가능하게 했다.
+
+**실측 검증**: 정확히 이 문제를 처음 발견했던 시나리오를 그대로 재현했다 — `run.ts`로 buyer-bff를 띄우고 `admin-cli resume-agent buyer-bff "안녕"`을 보낸 뒤 `list-events buyer-bff`를 조회하니, `ASSISTANT_MESSAGE`로 "안녕하세요! 무엇을 도와드릴까요?"가 정확히 찍혔다.
+
 ## 다음 단계
 
-Phase 1(오케스트레이션 루프), Phase 2(Scribe Agent/Decision Record), Phase 3(§15)까지 전부 실제 `claude -p` 세션으로 검증 완료됐다. 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 원인 불명 지연의 정체(`ORCHESTRATOR_DB_PATH` 누락)를 밝히고 고친 뒤 확인됐고, 같은 수정으로 Phase 3(§15.1) 왕복도 함께 풀렸다. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.
+Phase 1(오케스트레이션 루프), Phase 2(Scribe Agent/Decision Record), Phase 3(§15)까지 전부 실제 `claude -p` 세션으로 검증 완료됐다. 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 원인 불명 지연의 정체(`ORCHESTRATOR_DB_PATH` 누락)를 밝히고 고친 뒤 확인됐고, 같은 수정으로 Phase 3(§15.1) 왕복도 함께 풀렸다. 도구 호출 없는 일반 텍스트 응답 로깅(§16)도 실측 확인됨. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.
