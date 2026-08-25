@@ -18,9 +18,7 @@ architecture.md/mvp-scope.md 곳곳에 흩어져 있던 미해결 항목을 한 
 
 | 항목 | 조건 | 근거 |
 |---|---|---|
-| 테스트 스크립트가 `clearInterval` 이후에도 자연 종료되지 않음 | `ProcessManager`/`Orchestrator` 단독으로는 결백 확인됨(무료 진단). 좀비 프로세스로 남지 않아 급하지 않음. Phase 3 이후 Orchestrator를 실제로 오래 띄워두게 되면(지금은 매번 스크립트를 새로 실행) 미세한 누수가 쌓이는지 재조사 | [architecture.md §13.4](architecture.md#134-알려진-이슈-테스트-스크립트가-자연-종료되지-않음-원인-미확정) |
-
-**해결됨(2026-08-25)**: `run.ts`/`run-demo.ts` 전체 왕복 미실증이 "원인 불명의 지연"으로 여기 있었는데, 실제로는 mcp-config에 `ORCHESTRATOR_DB_PATH`를 안 넘겨서 각 Agent가 고아 DB에 쓰던 결정론적 버그였다. 수정 후 `npm run demo` 전체 왕복 실측 성공. 자세한 내용은 [investigation-mcp-session-delay.md](investigation-mcp-session-delay.md), [architecture.md §14.4](architecture.md#144-해결됨-orchestrator_db_path-누락으로-인한-고아-db) 참고.
+| 테스트 스크립트가 `clearInterval` 이후에도 자연 종료되지 않음 | `ProcessManager`/`Orchestrator` 단독으로는 결백 확인됨(무료 진단). 좀비 프로세스로 남지 않아 급하지 않음. Phase 3 이후 Orchestrator를 실제로 오래 띄워두게 되면(지금은 매번 스크립트를 새로 실행) 미세한 누수가 쌓이는지 재조사 — 2026-08-25에 `run.ts`를 10분 넘게 띄워둔 세션이 있었지만 이 현상 자체를 목적으로 관찰하진 않아서 조건 충족 안 함 | [architecture.md §13.4](architecture.md#134-알려진-이슈-테스트-스크립트가-자연-종료되지-않음-원인-미확정) |
 
 ## 다음 Phase (계획된 확장)
 

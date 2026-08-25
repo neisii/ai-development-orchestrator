@@ -311,4 +311,4 @@ MVP에서는 단일 SQLite 파일(예: `better-sqlite3`)을 권장한다. 스키
 
 ## 구현 현황
 
-Phase 1(§1~6)과 Phase 2(§7.1~7.4 기본형)는 `src/`에 구현되어 실제 `claude -p` 세션으로 검증됐다. Phase 3(§7.5~7.7: Decision Intervention 트리거, REVISING 재작성 경로, History 검색, 파일 경로 추적성)는 `npx tsc --noEmit` 통과까지 확인됐고, 실제 세션 검증은 [backlog.md](backlog.md) 참고. 상세 내용과 실측 기록은 [architecture.md](architecture.md) §12 이하 참고.
+Phase 1(§1~6), Phase 2(§7.1~7.4 기본형), Phase 3(§7.5~7.7: Decision Intervention 트리거, REVISING 재작성 경로, History 검색, 파일 경로 추적성) 전부 `src/`에 구현되어 실제 `claude -p` 세션으로 검증됐다. 상세 내용과 실측 기록은 [architecture.md](architecture.md) §12 이하 참고.
