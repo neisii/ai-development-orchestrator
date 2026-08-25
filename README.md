@@ -38,7 +38,7 @@ Phase 1(MVP 오케스트레이션 루프) + Phase 2(Scribe Agent/Decision Record
 - `ProcessManager` — Agent(Claude Code 헤드리스 세션) spawn/pause/resume/stop
 - MCP 서버(`ask_agent`/`answer_question`/`submit_decision_record`) — Agent 간 통신, Scribe의 기록 제출을 전부 오케스트레이터 경유로 강제
 - Hook 수신 서버 — Event Log 수집
-- `Orchestrator` — 승인된 질문/답변 자동 전달, Agent 상태 기록, Human Intervention 적용, 거절 사유가 있는 Question/Answer·Decision Intervention·거절된 Decision Record(재작성)를 Scribe Agent에게 자동 위임
+- `Orchestrator` — 승인된 질문/답변 자동 전달, Agent 상태 기록, Human Intervention 적용, 거절 사유가 있는 Question/Answer·Decision Intervention·거절된 Decision Record(재작성)를 Scribe Agent에게 자동 위임, 도구 호출 없는 일반 텍스트 응답도 Event Log에 기록
 - `admin-cli` — 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction, Decision Record 검토·승인, Decision Intervention 기록(`decide-choice`), 과거 결정 검색(`search-decisions`)·파일 경로로 역추적(`show-decisions-for-file`)
 - `run-demo`(`npm run demo`) — 빈 임시 디렉터리로 오케스트레이션 메커니즘 자체를 지켜보는 인터랙티브 진입점
 - `run`(`npm run start`) — `orchestrator.config.json`에 적은 **실제 프로젝트 경로**로 Agent를 띄우는 진입점 (템플릿: `orchestrator.config.example.json`)
