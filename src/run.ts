@@ -59,20 +59,29 @@ mkdirSync(".orchestrator", { recursive: true });
 // claude CLI는 --mcp-config/--settings 경로를 자기 cwd(Agent별 프로젝트 디렉터리) 기준으로
 // 해석하므로 반드시 절대 경로여야 한다(architecture.md §14.1에서 실측 확인된 버그).
 const dbPath = resolve(".orchestrator/data.db");
-const mcpConfigPath = resolve(".orchestrator/mcp-config.json");
 const mcpServerPath = new URL("./mcp-server.ts", import.meta.url).pathname;
-writeFileSync(
-  mcpConfigPath,
-  JSON.stringify({
-    mcpServers: {
-      // env를 안 주면 이 서브프로세스가 claude 자신의 cwd(= 각 Agent의 프로젝트 디렉터리)를
-      // 물려받아, db.ts의 상대 경로 기본값이 Agent 디렉터리마다 별도의 고아 DB를 만든다
-      // (docs/investigation-mcp-session-delay.md에서 실측 확인된 버그 — "원인 불명의 지연"의
-      // 정체는 이 고아 DB 때문에 Question이 영원히 승인 대상에 안 잡히는 것이었다).
-      orchestrator: { command: "npx", args: ["tsx", mcpServerPath], env: { ORCHESTRATOR_DB_PATH: dbPath } },
-    },
-  })
-);
+
+// Agent마다 별도 mcp-config 파일을 쓴다 — 예전엔 파일 하나를 전부 공유해서 env로 Agent별
+// 값을 구분할 방법이 없었다. ORCHESTRATOR_DB_PATH는 고아 DB 버그(investigation-mcp-session-delay.md)
+// 방지용, ORCHESTRATOR_AGENT_ID는 신원 위장 방지용(architecture.md §16) — 이 MCP 서버
+// 서브프로세스는 자기가 어느 Agent를 위한 것인지 이 값으로만 판단하고, from_agent_id 인자가
+// 이 값과 다르면 무조건 거절한다.
+function writeMcpConfig(agentId: string): string {
+  const path = resolve(`.orchestrator/${agentId}-mcp-config.json`);
+  writeFileSync(
+    path,
+    JSON.stringify({
+      mcpServers: {
+        orchestrator: {
+          command: "npx",
+          args: ["tsx", mcpServerPath],
+          env: { ORCHESTRATOR_DB_PATH: dbPath, ORCHESTRATOR_AGENT_ID: agentId },
+        },
+      },
+    })
+  );
+  return path;
+}
 
 const hookServer = startHookServer(config.hookPort);
 
@@ -101,7 +110,7 @@ for (const agentConfig of config.agents) {
   const pm = new ProcessManager({
     id: agentConfig.id,
     projectPath: resolve(agentConfig.projectPath),
-    mcpConfigPath,
+    mcpConfigPath: writeMcpConfig(agentConfig.id),
     settingsPath,
     // 실제 Project Agent는 데모와 달리 역할이 고정돼 있지 않다 — 어느 프로젝트든
     // 서로 질문하고 답할 수 있어야 하므로 두 도구를 다 준다.
@@ -117,7 +126,7 @@ const scribeProjectPath = mkdtempSync(join(tmpdir(), "ado-scribe-"));
 const scribe = new ProcessManager({
   id: "scribe-agent",
   projectPath: scribeProjectPath,
-  mcpConfigPath,
+  mcpConfigPath: writeMcpConfig("scribe-agent"),
   allowedTools: ["mcp__orchestrator__submit_decision_record"],
 });
 scribe.on("lifecycle-change", (s) => console.log(`[scribe-agent] ${s}`));

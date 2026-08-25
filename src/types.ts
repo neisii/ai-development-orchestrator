@@ -125,7 +125,8 @@ export type EventType =
   | "DECISION_RECORD_REVISED"
   | "DECISION_RECORD_REVIEWED"
   | "DECISION_INTERVENTION_REQUESTED"
-  | "ASSISTANT_MESSAGE";
+  | "ASSISTANT_MESSAGE"
+  | "AGENT_IDENTITY_MISMATCH";
 
 export type EventSource = "hook" | "mcp" | "orchestrator";
 

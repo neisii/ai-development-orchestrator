@@ -17,23 +17,28 @@ import { Orchestrator } from "./orchestrator.js";
 
 const workDir = mkdtempSync(join(tmpdir(), "ado-scribe-test-"));
 const dbPath = join(workDir, "data.db");
-const mcpConfigPath = join(workDir, "mcp-config.json");
 const mcpServerPath = new URL("./mcp-server.ts", import.meta.url).pathname;
 
 process.env.ORCHESTRATOR_DB_PATH = dbPath; // admin-cli 셸 호출도 같은 DB를 보게 한다
 
-writeFileSync(
-  mcpConfigPath,
-  JSON.stringify({
-    mcpServers: {
-      orchestrator: {
-        command: "npx",
-        args: ["tsx", mcpServerPath],
-        env: { ORCHESTRATOR_DB_PATH: dbPath },
+// Agent마다 별도 mcp-config 파일을 쓴다 — ORCHESTRATOR_AGENT_ID로 신원을 검증하므로
+// (architecture.md §16) Agent별 값이 필요해 예전처럼 파일 하나를 공유할 수 없다.
+function writeMcpConfig(agentId: string): string {
+  const path = join(workDir, `${agentId}-mcp-config.json`);
+  writeFileSync(
+    path,
+    JSON.stringify({
+      mcpServers: {
+        orchestrator: {
+          command: "npx",
+          args: ["tsx", mcpServerPath],
+          env: { ORCHESTRATOR_DB_PATH: dbPath, ORCHESTRATOR_AGENT_ID: agentId },
+        },
       },
-    },
-  })
-);
+    })
+  );
+  return path;
+}
 
 console.log("workDir:", workDir);
 
@@ -59,7 +64,7 @@ function makeAgent(id: string, tool: string): ProcessManager {
   const pm = new ProcessManager({
     id,
     projectPath,
-    mcpConfigPath,
+    mcpConfigPath: writeMcpConfig(id),
     allowedTools: [`mcp__orchestrator__${tool}`],
   });
   pm.on("lifecycle-change", (s) => console.log(`[${id}] lifecycle -> ${s}`));

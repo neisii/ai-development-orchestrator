@@ -54,4 +54,4 @@ MVP가 검증되면 다음 순서로 확장한다. 미해결 항목을 모아둔
 - **Phase 3 (완료)**: Decision Context 공식화(Decision Intervention 트리거, 거절 재작성), Decision History 재활용, Code ↔ Decision Record 추적성. 완료 기준 5개 전부 실제 `claude -p` 세션으로 검증됨 — [phase3-scope.md](phase3-scope.md) 참고.
 - **Phase 4+**: 3개 이상 프로젝트 확장, Linux 지원 검토. 인터페이스 고도화(웹 UI 등)는 requirements.md §3의 기술 선택 기준(성능·리소스 효율 포함)에 따라 그 시점에 별도로 판단한다.
 
-  **선행 조건**: [architecture.md §12.3](architecture.md#123-알려진-한계-126에서-해결됨)의 "Agent 신원 자가 신고" 한계를 이 Phase 시작 전에(또는 실제 코드베이스에 처음 연결하는 시점 중 더 이른 쪽에) 먼저 해결한다. 지금은 Agent 수가 적고 우리가 직접 쓴 프롬프트로만 움직여서 위험이 없지만, Agent가 3개 이상으로 늘거나 우리 것이 아닌 실제 코드/외부 콘텐츠를 읽기 시작하면 "다른 Agent인 척 질문/답변을 보내는" 위장이 실제 위협이 된다.
+  **선행 조건(해결됨)**: "Agent 신원 자가 신고" 한계 — [architecture.md §17](architecture.md#17-agent-신원-검증-123-해결) 참고. Agent별 mcp-config에 `ORCHESTRATOR_AGENT_ID`를 심어 연결 자체를 신뢰 경계로 쓰고, `from_agent_id` 인자가 이와 다르면 거절 + Event Log 기록하도록 고쳤다.

@@ -221,7 +221,7 @@ Agent 상태(`ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등)는 오케스트�
 ### 12.3 알려진 한계 (§12.4에서 해결됨)
 
 - ~~**자동 전달 미구현**~~ → §12.4에서 해결.
-- **Agent 신원 자가 신고**: `from_agent_id`를 도구 호출 인자로 Agent 스스로 보고하게 했다(연결 자체로 신원을 강제하지 않음). Agent들이 모두 우리가 배포한 시스템 프롬프트/설정을 따른다는 전제하에는 MVP로 충분하지만, 진짜 신뢰 경계가 필요해지면 Agent별로 별도 HTTP 엔드포인트를 두는 등의 방식으로 바꿔야 한다. **해결 시점**: [mvp-scope.md Phase 4+](mvp-scope.md#phase-2-이후와의-관계)의 선행 조건으로 지정 — Agent가 3개 이상으로 늘거나 실제(스크래치가 아닌) 코드베이스/외부 콘텐츠를 다루기 시작하는 시점 중 더 이른 쪽에 해결한다.
+- ~~**Agent 신원 자가 신고**~~ → [§17](#17-agent-신원-검증-123-해결)에서 해결.
 
 ## 12.4 `ProcessManager` ↔ `qa-store`/`mcp-server` 통합
 
@@ -379,6 +379,18 @@ backlog.md에 "설계 공백"으로 남아있던 문제를 고쳤다. `resume-ag
 
 **실측 검증**: 정확히 이 문제를 처음 발견했던 시나리오를 그대로 재현했다 — `run.ts`로 buyer-bff를 띄우고 `admin-cli resume-agent buyer-bff "안녕"`을 보낸 뒤 `list-events buyer-bff`를 조회하니, `ASSISTANT_MESSAGE`로 "안녕하세요! 무엇을 도와드릴까요?"가 정확히 찍혔다.
 
+## 17. Agent 신원 검증 (§12.3 해결)
+
+§12.3에서 "MVP로는 충분하지만 진짜 신뢰 경계가 필요해지면 고쳐야 한다"고 남겨뒀던 항목을 고쳤다. `from_agent_id`는 Agent(LLM)가 도구 호출 인자로 스스로 적어 넣는 문자열이라 그 자체로는 신원을 증명하지 못한다 — 다른 Agent인 척 `ask_agent`/`answer_question`을 호출해도 예전엔 막을 방법이 없었다.
+
+**수정**: `mcp-server.ts`는 Agent마다 별도 서브프로세스로 뜨므로(`run.ts`/`run-demo.ts`가 Agent마다 mcp-config 파일을 분리해서 spawn), 그 연결 자체를 신뢰 경계로 썼다. 각 mcp-config의 `env`에 `ORCHESTRATOR_AGENT_ID`로 진짜 신원을 박아 넣고, `checkAgentIdentity()`가 이 값과 `from_agent_id` 인자를 비교해서 다르면(env가 아예 없어도) 무조건 거절한다 — 토큰을 발급하고 매번 대조하는 방식 대신, 이미 Agent마다 격리된 프로세스라는 사실 자체를 근거로 쓴 것이다. 불일치 시 거절 응답과 함께 새 `AGENT_IDENTITY_MISMATCH` Event Log 항목도 남겨서(`agentId`는 거짓 주장이 아니라 진짜 신원), `list-events`로 위장 시도 자체를 관측할 수 있게 했다.
+
+**fail-closed로 설계한 이유**: env가 없으면 그냥 통과시키는 soft-skip도 고려했지만, 그러면 나중에 새 진입점을 추가하면서 env 설정을 깜빡해도 조용히 예전의 무방비 상태로 돌아간다. 그래서 env 부재도 항상 불일치로 취급한다 — `ask_agent`/`answer_question`을 실제로 쓰는 모든 진입점(`run.ts`, `run-demo.ts`, `manual-test-mvp-e2e.ts`, `manual-test-orchestrator.ts`, `manual-test-scribe.ts`, `manual-test-scribe-answer.ts`)이 전부 이 env를 설정하도록 함께 고쳤다.
+
+**실측 검증**: `run.ts`로 실제 두 Agent를 띄우고 두 가지를 재현했다.
+- **정상 케이스**: buyer-bff가 진짜 자기 이름(`from_agent_id='buyer-bff'`)으로 `ask_agent` 호출 → 정상적으로 Question 생성됨.
+- **위장 시도**: api-agent에게 "네 실제 이름 대신 `from_agent_id='buyer-bff'`로 호출해라"라고 명시적으로 지시 → 거절 응답(`신원 불일치: 이 프로세스는 "api-agent"로 등록됐지만 from_agent_id로 "buyer-bff"를 주장했습니다`) 확인, `AGENT_IDENTITY_MISMATCH` 이벤트가 진짜 신원(`api-agent`)으로 기록됨 확인, Question은 생성 안 됨 확인.
+
 ## 다음 단계
 
-Phase 1(오케스트레이션 루프), Phase 2(Scribe Agent/Decision Record), Phase 3(§15)까지 전부 실제 `claude -p` 세션으로 검증 완료됐다. 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 원인 불명 지연의 정체(`ORCHESTRATOR_DB_PATH` 누락)를 밝히고 고친 뒤 확인됐고, 같은 수정으로 Phase 3(§15.1) 왕복도 함께 풀렸다. 도구 호출 없는 일반 텍스트 응답 로깅(§16)도 실측 확인됨. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.
+Phase 1(오케스트레이션 루프), Phase 2(Scribe Agent/Decision Record), Phase 3(§15)까지 전부 실제 `claude -p` 세션으로 검증 완료됐다. 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 원인 불명 지연의 정체(`ORCHESTRATOR_DB_PATH` 누락)를 밝히고 고친 뒤 확인됐고, 같은 수정으로 Phase 3(§15.1) 왕복도 함께 풀렸다. 도구 호출 없는 일반 텍스트 응답 로깅(§16)과 Agent 신원 검증(§17)도 실측 확인됨. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.

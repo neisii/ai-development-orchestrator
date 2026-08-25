@@ -36,7 +36,7 @@ Human-in-the-loop orchestration system for coordinating multiple AI agents acros
 Phase 1(MVP 오케스트레이션 루프) + Phase 2(Scribe Agent/Decision Record) + Phase 3(Decision Intervention 트리거, 거절 재작성, History 검색, Code 추적성) 구현 완료. Node.js/TypeScript로 `src/`에 다음을 구현했다.
 
 - `ProcessManager` — Agent(Claude Code 헤드리스 세션) spawn/pause/resume/stop
-- MCP 서버(`ask_agent`/`answer_question`/`submit_decision_record`) — Agent 간 통신, Scribe의 기록 제출을 전부 오케스트레이터 경유로 강제
+- MCP 서버(`ask_agent`/`answer_question`/`submit_decision_record`) — Agent 간 통신, Scribe의 기록 제출을 전부 오케스트레이터 경유로 강제. Agent마다 별도 서브프로세스로 떠서 `ORCHESTRATOR_AGENT_ID`로 진짜 신원을 검증 — 다른 Agent인 척 `from_agent_id`를 거짓 주장하면 거절하고 기록함
 - Hook 수신 서버 — Event Log 수집
 - `Orchestrator` — 승인된 질문/답변 자동 전달, Agent 상태 기록, Human Intervention 적용, 거절 사유가 있는 Question/Answer·Decision Intervention·거절된 Decision Record(재작성)를 Scribe Agent에게 자동 위임, 도구 호출 없는 일반 텍스트 응답도 Event Log에 기록
 - `admin-cli` — 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction, Decision Record 검토·승인, Decision Intervention 기록(`decide-choice`), 과거 결정 검색(`search-decisions`)·파일 경로로 역추적(`show-decisions-for-file`)

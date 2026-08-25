@@ -172,12 +172,17 @@ Hook/MCP에서 실제로 오는 원시 이벤트를 그대로 보존한다. "파
 | `DECISION_RECORD_REVIEWED` | orchestrator | Human이 Decision Record 승인/거절 (§7) |
 | `DECISION_INTERVENTION_REQUESTED` | orchestrator | Human이 `decide-choice`로 Decision Intervention을 기록 (§7.5) |
 | `ASSISTANT_MESSAGE` | orchestrator | Agent가 도구 호출 없이 텍스트로만 응답 (§5.3) |
+| `AGENT_IDENTITY_MISMATCH` | mcp | `from_agent_id`가 이 프로세스의 진짜 신원(`ORCHESTRATOR_AGENT_ID`)과 다름 — 신원 위장 시도/버그 (§5.4) |
 
 ### 5.3 도구 호출 없는 일반 텍스트 응답 (해결됨)
 
 §5.2의 나머지 `type`은 hook이 걸리는 지점(세션 시작/종료, 도구 호출 전후)과 MCP 도구 호출뿐이라, Agent가 도구를 안 쓰고 말로만 답하는 경우(단순 인사, 서술형 답변 등)는 한동안 어디에도 안 남았다. `ProcessManager`가 claude 프로세스의 stdout(`stream-json`)에서 `session_id`/`system.init`만 상태 전환용으로 읽고, `assistant` 타입 메시지의 텍스트 콘텐츠 블록은 무시했기 때문이다(hook도 도구/세션 경계에만 걸리므로 원래 이 경로는 못 잡는다).
 
 이건 §1의 "원시 데이터와 파생 표시를 분리한다" 원칙과는 다른 종류의 공백이었다 — 파생을 안 한 게 아니라 원시 데이터 자체를 안 모으고 있었다. `resume-agent buyer-bff "안녕"` 실사용 중 발견됐고, `ProcessManager`가 `assistant` 메시지의 `content` 배열에서 `type: "text"` 블록만 뽑아 `assistant-message` 이벤트로 알리면(`src/process-manager.ts`), `Orchestrator`가 이를 구독해 `ASSISTANT_MESSAGE`로 Event Log에 기록하도록 고쳤다(`src/orchestrator.ts`의 `recordAssistantMessage`). `admin-cli list-events`도 이 타입이면 텍스트 미리보기를 같이 보여준다. 실측 검증은 [architecture.md §16](architecture.md#16-도구-호출-없는-일반-텍스트-응답-로깅) 참고.
+
+### 5.4 Agent 신원 위장 시도 기록
+
+`from_agent_id`는 Agent(LLM)가 도구 호출 인자로 스스로 적어 넣는 문자열이라 그 자체로는 신원을 증명하지 못한다. `mcp-server.ts`는 자신을 spawn한 mcp-config의 `ORCHESTRATOR_AGENT_ID` 환경변수(Agent마다 별도 mcp-config 파일에 심어둠)를 진짜 신원으로 삼아, `ask_agent`/`answer_question` 호출의 `from_agent_id`가 이와 다르면(env가 아예 없어도) 무조건 거절하고 `AGENT_IDENTITY_MISMATCH`를 기록한다. `agentId` 필드에는 거짓으로 주장한 값이 아니라 진짜 신원(`ORCHESTRATOR_AGENT_ID`, 없으면 주장한 값)이 들어간다. 실측 검증은 [architecture.md §17](architecture.md#17-agent-신원-검증-123-해결) 참고.
 
 ## 6. Intervention
 

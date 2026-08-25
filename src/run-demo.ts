@@ -22,26 +22,31 @@ mkdirSync(".orchestrator", { recursive: true });
 // claude CLI는 --mcp-config 경로를 자기 cwd(Agent별 임시 작업 디렉터리) 기준으로 해석하므로
 // 반드시 절대 경로여야 한다. 상대 경로를 썼다가 "MCP config file not found"로 실패했었다.
 const dbPath = resolve(".orchestrator/data.db");
-const mcpConfigPath = resolve(".orchestrator/mcp-config.json");
 const mcpServerPath = new URL("./mcp-server.ts", import.meta.url).pathname;
 
-writeFileSync(
-  mcpConfigPath,
-  JSON.stringify({
-    mcpServers: {
-      orchestrator: {
-        command: "npx",
-        args: ["tsx", mcpServerPath],
-        // env 없이 두면 이 서브프로세스가 claude의 cwd(각 Agent의 임시 프로젝트 디렉터리)를
-        // 물려받아, db.ts의 상대 경로 기본값이 Agent마다 별도 고아 DB를 만든다 — Question이
-        // 실제로는 즉시 생성되지만 admin-cli가 보는 공유 DB에는 영원히 안 잡혀서 승인 대상이
-        // 못 되고, ask_agent 호출은 내부 타임아웃까지 조용히 멈춰있는 것으로 관측됐다
-        // (docs/investigation-mcp-session-delay.md 실측 확인).
-        env: { ORCHESTRATOR_DB_PATH: dbPath },
+// Agent마다 별도 mcp-config 파일을 쓴다 — 예전엔 파일 하나를 전부 공유해서 env로 Agent별 값을
+// 구분할 방법이 없었다. env 없이 두면 이 서브프로세스가 claude의 cwd(각 Agent의 임시 프로젝트
+// 디렉터리)를 물려받아, db.ts의 상대 경로 기본값이 Agent마다 별도 고아 DB를 만든다 — Question이
+// 실제로는 즉시 생성되지만 admin-cli가 보는 공유 DB에는 영원히 안 잡혀서 승인 대상이 못 되고,
+// ask_agent 호출은 내부 타임아웃까지 조용히 멈춰있는 것으로 관측됐다(investigation-mcp-session-delay.md).
+// ORCHESTRATOR_AGENT_ID는 신원 위장 방지용(architecture.md §16) — 이 값과 from_agent_id 인자가
+// 다르면 mcp-server.ts가 무조건 거절한다.
+function writeMcpConfig(agentId: string): string {
+  const path = resolve(`.orchestrator/${agentId}-mcp-config.json`);
+  writeFileSync(
+    path,
+    JSON.stringify({
+      mcpServers: {
+        orchestrator: {
+          command: "npx",
+          args: ["tsx", mcpServerPath],
+          env: { ORCHESTRATOR_DB_PATH: dbPath, ORCHESTRATOR_AGENT_ID: agentId },
+        },
       },
-    },
-  })
-);
+    })
+  );
+  return path;
+}
 
 const db = openDb(dbPath);
 const eventLog = new EventLogStore(db);
@@ -65,7 +70,7 @@ function makeAgent(id: string, tool: string): ProcessManager {
   const pm = new ProcessManager({
     id,
     projectPath,
-    mcpConfigPath,
+    mcpConfigPath: writeMcpConfig(id),
     allowedTools: [`mcp__orchestrator__${tool}`],
   });
   pm.on("lifecycle-change", (s) => console.log(`[${id}] ${s}`));

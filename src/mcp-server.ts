@@ -25,6 +25,32 @@ const decisionRecords = new DecisionRecordStore(db, eventLog);
 
 const server = new McpServer({ name: "orchestrator", version: "0.1.0" });
 
+// docs/architecture.md §12.3/§16 참고: from_agent_id는 도구 호출 인자로 Agent(LLM)가 스스로
+// 적어 넣는 문자열이라 그 자체로는 신원을 증명하지 못한다. 이 MCP 서버 서브프로세스는 Agent별로
+// 하나씩 떠서(run.ts/run-demo.ts가 Agent마다 mcp-config를 분리해서 spawn) ORCHESTRATOR_AGENT_ID
+// 환경변수로 진짜 신원을 받으므로, 그 값과 from_agent_id가 다르면(env가 아예 없어도) 무조건
+// 거절한다 — env를 깜빡한 새 진입점이 조용히 예전의 무방비 상태로 돌아가지 않도록 fail-closed로 뒀다.
+function checkAgentIdentity(claimedId: string, tool: string) {
+  const trustedId = process.env.ORCHESTRATOR_AGENT_ID;
+  if (trustedId === claimedId) return null;
+
+  eventLog.record({
+    agentId: trustedId ?? claimedId,
+    type: "AGENT_IDENTITY_MISMATCH",
+    source: "mcp",
+    payload: { tool, claimedAgentId: claimedId, trustedAgentId: trustedId ?? null },
+  });
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text" as const,
+        text: `신원 불일치: 이 프로세스는 "${trustedId ?? "(env 미설정)"}"로 등록됐지만 from_agent_id로 "${claimedId}"를 주장했습니다.`,
+      },
+    ],
+  };
+}
+
 server.registerTool(
   "ask_agent",
   {
@@ -43,6 +69,9 @@ server.registerTool(
     },
   },
   async ({ from_agent_id, target_agent_id, question, why_needed }) => {
+    const mismatch = checkAgentIdentity(from_agent_id, "ask_agent");
+    if (mismatch) return mismatch;
+
     const q = store.createQuestion({
       fromAgentId: from_agent_id,
       toAgentId: target_agent_id,
@@ -92,6 +121,9 @@ server.registerTool(
     },
   },
   async ({ question_id, from_agent_id, answer, content_status }) => {
+    const mismatch = checkAgentIdentity(from_agent_id, "answer_question");
+    if (mismatch) return mismatch;
+
     const question = store.getQuestion(question_id);
     if (!question) {
       return {
