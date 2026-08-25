@@ -1,5 +1,7 @@
 # Phase 3 범위 정의
 
+**상태: 구현 완료, 실제 세션 왕복 미실증.** 아래 범위 그대로 `src/`에 구현됐고 `npx tsc --noEmit` 통과와 스토어 계층 직접 테스트로 코드 정확성은 확인됐다. 다만 완료 기준 4번이 요구하는 "실제 세션으로 확인"까지는 아직 못했다 — 사유는 [backlog.md](backlog.md), 구현 상세는 [architecture.md §15](architecture.md#15-phase-3-decision-intervention-트리거--거절-재작성-경로--history-검색--파일-추적성) 참고.
+
 [mvp-scope.md](mvp-scope.md)/[backlog.md](backlog.md)에서 Phase 3로 미뤄둔 세 가지(Decision Context 공식화, Decision History 재활용, Code ↔ Decision Record 추적성)와, 이미 백로그에 있던 "Decision Record 거절 시 재작성 경로 없음"을 함께 다룬다. MVP 때와 같은 원칙 — 구현 전에 범위부터 정의하고, 확신 없는 자동화(휴리스틱)보다는 사람이 개입하는 명시적 경로를 우선한다 — 을 그대로 따른다.
 
 ## 1. Decision Context 공식화 (requirements.md §18)

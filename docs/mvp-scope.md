@@ -51,7 +51,7 @@ Human이 최소 2개의 독립 프로젝트를 각각 담당하는 Project Agent
 MVP가 검증되면 다음 순서로 확장한다. 미해결 항목을 모아둔 목록은 [backlog.md](backlog.md) 참고.
 
 - **Phase 2 (완료)**: Scribe Agent 도입, 최소 Decision Record(배경/문제/선택지/결정/근거) 기록. 실제 `claude -p` 세션으로 검증됨 — [architecture.md §13](architecture.md#13-phase-2-scribe-agent와-decision-record) 참고.
-- **Phase 3**: Decision Context 공식화, Decision History 재활용, Code ↔ Decision Record 추적성
+- **Phase 3 (구현 완료, 실제 세션 왕복 미실증)**: Decision Context 공식화(Decision Intervention 트리거, 거절 재작성), Decision History 재활용, Code ↔ Decision Record 추적성. 범위 정의와 구현 현황은 [phase3-scope.md](phase3-scope.md) 참고.
 - **Phase 4+**: 3개 이상 프로젝트 확장, Linux 지원 검토. 인터페이스 고도화(웹 UI 등)는 requirements.md §3의 기술 선택 기준(성능·리소스 효율 포함)에 따라 그 시점에 별도로 판단한다.
 
   **선행 조건**: [architecture.md §12.3](architecture.md#123-알려진-한계-126에서-해결됨)의 "Agent 신원 자가 신고" 한계를 이 Phase 시작 전에(또는 실제 코드베이스에 처음 연결하는 시점 중 더 이른 쪽에) 먼저 해결한다. 지금은 Agent 수가 적고 우리가 직접 쓴 프롬프트로만 움직여서 위험이 없지만, Agent가 3개 이상으로 늘거나 우리 것이 아닌 실제 코드/외부 콘텐츠를 읽기 시작하면 "다른 Agent인 척 질문/답변을 보내는" 위장이 실제 위협이 된다.

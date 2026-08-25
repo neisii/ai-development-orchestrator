@@ -142,7 +142,7 @@ npm run admin -- stop-agent buyer-bff                      # 완전 중단 (재�
 ```bash
 npm run admin -- list-events            # 전체 Event Log (시간순)
 npm run admin -- list-events buyer-bff  # 특정 Agent만
-npm run admin -- list-decisions --all   # DRAFT뿐 아니라 APPROVED/REJECTED까지
+npm run admin -- list-decisions --all   # DRAFT뿐 아니라 APPROVED/REVISING까지
 ```
 
 ## 3. 실전 프로젝트에 연결하기
