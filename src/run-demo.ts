@@ -65,6 +65,24 @@ const orchestrator = new Orchestrator(
   2000
 );
 
+// data-model.md §2.2에 정의된 상태 의미를 그대로 옮긴 설명. 상태 이름만 찍히면 처음 보는
+// 사람은 무슨 뜻인지, 지금 뭘 하면 되는지 알 수 없어서 붙였다.
+const STATE_EXPLANATION: Record<string, string> = {
+  STARTING: "claude 프로세스를 새로 띄우는 중",
+  RUNNING: "작업 중 (도구를 호출했다면 Human 승인 대기 상태일 수 있음)",
+  PAUSED: "일시정지됨 — admin-cli resume-agent로 재개해야 다시 움직임",
+  COMPLETED: "이번 턴 정상 종료",
+  FAILED: "비정상 종료 — 위에 같이 찍힌 에러 메시지(있다면) 확인",
+  STOPPED: "완전히 중단됨 — 이후 자동 재개 없음",
+};
+
+function logLifecycle(id: string, state: string): void {
+  console.log(`[${id}] ${state} — ${STATE_EXPLANATION[state] ?? ""}`);
+  if (state === "COMPLETED") {
+    console.log("    >>> 도구를 호출했을 수 있습니다. 다른 터미널에서 list-questions / list-answers / list-decisions 로 확인해보세요.");
+  }
+}
+
 function makeAgent(id: string, tool: string): ProcessManager {
   const projectPath = mkdtempSync(join(tmpdir(), `ado-demo-${id}-`));
   const pm = new ProcessManager({
@@ -73,7 +91,7 @@ function makeAgent(id: string, tool: string): ProcessManager {
     mcpConfigPath: writeMcpConfig(id),
     allowedTools: [`mcp__orchestrator__${tool}`],
   });
-  pm.on("lifecycle-change", (s) => console.log(`[${id}] ${s}`));
+  pm.on("lifecycle-change", (s) => logLifecycle(id, s));
   return pm;
 }
 
