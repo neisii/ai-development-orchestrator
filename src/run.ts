@@ -58,20 +58,25 @@ for (const agent of config.agents) {
 mkdirSync(".orchestrator", { recursive: true });
 // claude CLI는 --mcp-config/--settings 경로를 자기 cwd(Agent별 프로젝트 디렉터리) 기준으로
 // 해석하므로 반드시 절대 경로여야 한다(architecture.md §14.1에서 실측 확인된 버그).
+const dbPath = resolve(".orchestrator/data.db");
 const mcpConfigPath = resolve(".orchestrator/mcp-config.json");
 const mcpServerPath = new URL("./mcp-server.ts", import.meta.url).pathname;
 writeFileSync(
   mcpConfigPath,
   JSON.stringify({
     mcpServers: {
-      orchestrator: { command: "npx", args: ["tsx", mcpServerPath] },
+      // env를 안 주면 이 서브프로세스가 claude 자신의 cwd(= 각 Agent의 프로젝트 디렉터리)를
+      // 물려받아, db.ts의 상대 경로 기본값이 Agent 디렉터리마다 별도의 고아 DB를 만든다
+      // (docs/investigation-mcp-session-delay.md에서 실측 확인된 버그 — "원인 불명의 지연"의
+      // 정체는 이 고아 DB 때문에 Question이 영원히 승인 대상에 안 잡히는 것이었다).
+      orchestrator: { command: "npx", args: ["tsx", mcpServerPath], env: { ORCHESTRATOR_DB_PATH: dbPath } },
     },
   })
 );
 
 const hookServer = startHookServer(config.hookPort);
 
-const db = openDb();
+const db = openDb(dbPath);
 const eventLog = new EventLogStore(db);
 const store = new QaStore(db, eventLog);
 const agentStore = new AgentStore(db);

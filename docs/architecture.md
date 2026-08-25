@@ -256,7 +256,7 @@ Question/Answer 승인과 같은 패턴이다: `admin-cli`(`pause-agent`/`resume
 **시나리오**:
 1. **Phase 1** — api-agent 단독 세션에서 긴 텍스트 작성 도중 `pause-agent` → `PAUSED` → `resume-agent`(일반 재개) → `RUNNING` → `instruct-agent`(Direct Instruction, "그만 작성하고 짧게 답해") → 즉시 반영되어 `COMPLETED`. (기준 4, 5)
 2. **Phase 2** — buyer-bff가 `ask_agent` 호출 → `decide-question approve` → Orchestrator가 api-agent에 자동 전달(이미 세션이 있어 `resume()`으로 전달됨 — Phase 1과 세션 재사용) → api-agent가 `INSUFFICIENT_CONTEXT`로 답변 → `decide-answer approve` → buyer-bff에 자동 전달. (기준 1, 2, 3) MCP 도구 호출 자체가 hook을 발동시키므로 Event Log도 이 과정에서 함께 채워진다.
-3. **Phase 3** — `stop-agent`(이미 idle이라 API 비용 없음). (기준 4 마무리)
+3. **Phase 3** — `stop-agent`(이미 idle이라 새 `claude -p` 세션을 띄우지 않음). (기준 4 마무리)
 4. 각 단계 사이 `admin-cli list-agents`로 실시간 상태 확인. (기준 7)
 5. 마지막에 Event Log를 타입별로 집계. (기준 6)
 
@@ -336,11 +336,19 @@ Scribe를 실제로 실행해보다가 재현된 버그다. `isDeliverable()`에
 - **역할 고정 해제**: `run-demo.ts`는 buyer-bff=질문만/api-agent=답변만으로 역할을 고정했지만, 실제 프로젝트들은 서로 어느 방향으로든 묻고 답할 수 있어야 하므로 `run.ts`가 등록하는 모든 Project Agent는 `ask_agent`/`answer_question`을 둘 다 받는다. Scribe만 여전히 `submit_decision_record` 하나로 제한된다.
 - **자동 시작 없음**: `run-demo.ts`와 달리 첫 프롬프트를 자동으로 보내지 않는다 — 실제 프로젝트마다 첫 작업 내용이 다르므로, Human이 `admin-cli resume-agent <id> "..."`로 직접 지시한다. `Orchestrator.processInterventions()`의 RESUME 처리가 이미 `sessionId === null`이면 `start()`로 대신 처리하므로(§12.4~12.6 참고), 이 용도에 별도 admin-cli 명령을 새로 만들 필요가 없었다.
 
-### 14.3 실측 검증 (부분적)
+### 14.3 실측 검증 (부분적 → §14.4에서 해결됨)
 
 설정 검증·경로 해석·`claude` 프로세스 spawn까지는 실제로 확인했다: 진짜 파일이 든 임시 디렉터리 두 개(예: `ProductResponse.java`에 `stockQuantity` 필드가 실제로 있는 파일)를 만들어 `orchestrator.config.json`으로 등록하고 `npm run start`로 띄운 뒤, `admin-cli resume-agent buyer-bff "..."`로 첫 지시를 내렸다. 프로세스 인자를 확인하니 `--mcp-config`/`--settings` 둘 다 정확한 절대 경로로 들어가 있었고(§14.1의 버그가 재발하지 않음), Agent도 정상적으로 `RUNNING`까지 도달했다.
 
 다만 "api-agent가 실제로 그 파일을 읽고 `stockQuantity` 필드를 찾아서 답하는지"까지의 전체 왕복은 두 번 시도했으나 둘 다 확인하지 못했다 — buyer-bff의 첫 `ask_agent` 호출 자체가 매번 2분 넘게 응답이 안 왔다(CPU 시간도 거의 안 늘어남, API 응답 대기 중인 패턴). 처음엔 사용량 제한으로 추정했지만, 두 번째 시도 때는 같은 세션에서 `claude -p "hi"`가 몇 초 안에 정상 응답했고 `lsof`로 확인한 네트워크 연결도 Anthropic API 서버에 정상적으로 맺혀 있어서, 순수 레이트리밋이라고 단정하긴 어렵다 — 도구 호출이 낀 세션에서만 반복적으로 느려지는 원인 불명의 지연으로 정리한다. 코드나 설정에 문제가 있다고 볼 근거는 없었다(인자 전부 정확, 프로세스 정상 spawn, 네트워크 연결도 정상). [backlog.md](backlog.md)에 "부분 검증" 상태로 남겨뒀다.
+
+### 14.4 해결됨: `ORCHESTRATOR_DB_PATH` 누락으로 인한 고아 DB
+
+원인 불명이라고 정리했던 지연의 정체는 API/레이트리밋이 아니라, `run.ts`/`run-demo.ts`가 MCP 서버 서브프로세스에 `ORCHESTRATOR_DB_PATH` 환경변수를 안 넘긴 결정론적 버그였다. `db.ts`의 `openDb()`는 이 환경변수가 없으면 상대 경로 `.orchestrator/data.db`를 기본값으로 쓰는데, claude가 spawn하는 MCP 서버 서브프로세스는 claude 자신의 cwd(= 각 Agent의 프로젝트 디렉터리)를 그대로 물려받는다. 그 결과 `ask_agent` 호출 자체는 매번 정상적으로, 빠르게(수 초 이내) 성공해서 Question을 만들었지만, 오케스트레이터/`admin-cli`가 보는 공유 DB가 아니라 각 Agent의 프로젝트 디렉터리 밑에 새로 생긴 고아 `.orchestrator/data.db`에 썼다. `admin-cli list-questions`는 영원히 "대기 중인 질문 없음"만 보여줬고, 승인받지 못한 `ask_agent` 호출은 `waitForQuestionDecision`의 내부 타임아웃(기본 10분)까지 조용히 멈춰 있었다 — 이게 "2분 넘게 무응답"으로 관측된 것의 정체다.
+
+체계적으로 재현/격리한 진단 절차와 근거는 [investigation-mcp-session-delay.md](investigation-mcp-session-delay.md) 참고. 실제로 사람 개입까지 성공했던 `manual-test-scribe.ts`/`manual-test-mvp-e2e.ts`/`manual-test-orchestrator.ts`는 전부 mcp-config에 `env: { ORCHESTRATOR_DB_PATH: dbPath }`를 명시했었는데, 나중에 작성된 `run.ts`/`run-demo.ts`만 이 패턴을 빠뜨렸던 것 — 정확히 이 둘이 여태 전체 왕복 검증에 실패해온 스크립트였다.
+
+**수정**: 두 파일 모두 mcp-config 생성부에 `env: { ORCHESTRATOR_DB_PATH: dbPath }`를 추가하고, `openDb(dbPath)`로 같은 경로를 명시적으로 넘기게 통일했다. 수정 후 `npm run demo`로 재현하니 buyer-bff의 자동 질문 → 승인 → api-agent 전달 → 답변 → 승인 → buyer-bff 전달까지 전체 왕복이 수십 초 안에 정상 완료됐다 — 이 프로젝트에서 `run-demo.ts`의 자동 흐름이 사람 개입까지 포함해 끝까지 성공한 첫 사례다.
 
 ## 15. Phase 3: Decision Intervention 트리거 / 거절 재작성 경로 / History 검색 / 파일 추적성
 
@@ -353,8 +361,8 @@ Scribe를 실제로 실행해보다가 재현된 버그다. `isDeliverable()`에
 
 ### 15.1 실측 검증 (스토어 계층만, API 세션 미실증)
 
-`npx tsc --noEmit -p tsconfig.json`은 전체 통과했다. 별도로 `claude -p` 세션 없이 스토어 클래스만 직접 두드리는 스모크 테스트를 짜서, Decision Intervention 생성 → dedup 체크 → Decision Record 생성(파일 경로 포함) → 거절(`REVISING` 전이 확인) → 재작성(`update()`로 같은 id 갱신, `DRAFT` 복귀 확인) → 승인 → `search`/`listByFilePath`(부분 문자열 오탐 없음 확인)까지 전 구간을 실행해 통과시켰다. §14.3에서 겪은 "도구 호출이 낀 세션에서만 반복되는 원인 불명의 지연" 문제가 여전히 미해결이라, Scribe Agent가 실제로 `submit_decision_record`를 새 필드들과 함께 호출하는 전체 왕복까지는 이번에도 실측하지 못했다. [backlog.md](backlog.md)에 기록해뒀다.
+`npx tsc --noEmit -p tsconfig.json`은 전체 통과했다. 별도로 `claude -p` 세션 없이 스토어 클래스만 직접 두드리는 스모크 테스트를 짜서, Decision Intervention 생성 → dedup 체크 → Decision Record 생성(파일 경로 포함) → 거절(`REVISING` 전이 확인) → 재작성(`update()`로 같은 id 갱신, `DRAFT` 복귀 확인) → 승인 → `search`/`listByFilePath`(부분 문자열 오탐 없음 확인)까지 전 구간을 실행해 통과시켰다. 당시엔 §14.3의 "도구 호출이 낀 세션에서만 반복되는 원인 불명의 지연" 때문에 Scribe Agent가 실제로 `submit_decision_record`를 새 필드들과 함께 호출하는 전체 왕복까지는 실측하지 못했는데, 그 지연의 정체가 §14.4에서 밝혀지고 고쳐졌으므로 Phase 3도 같은 버그로 막혀 있었을 가능성이 높다 — Phase 3 자체의 실제 세션 재시도는 아직 안 함(다음 단계 후보).
 
 ## 다음 단계
 
-Phase 1(오케스트레이션 루프)과 Phase 2(Scribe Agent/Decision Record) 모두 실제 `claude -p` 세션으로 검증 완료됐고, 인터랙티브 데모(§14)까지 갖췄다. Phase 3(§15)는 코드·스토어 계층 검증까지 마쳤고 실제 세션 왕복만 남았다. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.
+Phase 1(오케스트레이션 루프)과 Phase 2(Scribe Agent/Decision Record) 모두 실제 `claude -p` 세션으로 검증 완료됐고, 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 마침내 실측 확인됐다. Phase 3(§15)는 코드·스토어 계층 검증까지 마쳤고, 왕복을 막던 근본 원인(§14.4)도 해소됐지만 Phase 3 자체의 실제 세션 재시도는 아직 남았다. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.

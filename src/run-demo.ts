@@ -21,6 +21,7 @@ import { Orchestrator } from "./orchestrator.js";
 mkdirSync(".orchestrator", { recursive: true });
 // claude CLI는 --mcp-config 경로를 자기 cwd(Agent별 임시 작업 디렉터리) 기준으로 해석하므로
 // 반드시 절대 경로여야 한다. 상대 경로를 썼다가 "MCP config file not found"로 실패했었다.
+const dbPath = resolve(".orchestrator/data.db");
 const mcpConfigPath = resolve(".orchestrator/mcp-config.json");
 const mcpServerPath = new URL("./mcp-server.ts", import.meta.url).pathname;
 
@@ -31,12 +32,18 @@ writeFileSync(
       orchestrator: {
         command: "npx",
         args: ["tsx", mcpServerPath],
+        // env 없이 두면 이 서브프로세스가 claude의 cwd(각 Agent의 임시 프로젝트 디렉터리)를
+        // 물려받아, db.ts의 상대 경로 기본값이 Agent마다 별도 고아 DB를 만든다 — Question이
+        // 실제로는 즉시 생성되지만 admin-cli가 보는 공유 DB에는 영원히 안 잡혀서 승인 대상이
+        // 못 되고, ask_agent 호출은 내부 타임아웃까지 조용히 멈춰있는 것으로 관측됐다
+        // (docs/investigation-mcp-session-delay.md 실측 확인).
+        env: { ORCHESTRATOR_DB_PATH: dbPath },
       },
     },
   })
 );
 
-const db = openDb(); // 기본 경로(.orchestrator/data.db)를 그대로 사용
+const db = openDb(dbPath);
 const eventLog = new EventLogStore(db);
 const store = new QaStore(db, eventLog);
 const agentStore = new AgentStore(db);

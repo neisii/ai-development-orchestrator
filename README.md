@@ -29,6 +29,7 @@ Human-in-the-loop orchestration system for coordinating multiple AI agents acros
 - [다이어그램 (diagrams.md)](docs/diagrams.md) — 유스케이스 다이어그램, Question/Answer 왕복·Human Intervention 시퀀스 다이어그램
 - [백로그 (backlog.md)](docs/backlog.md) — 미해결 항목, 조건부 트리거, 다음 Phase 계획
 - [실 테스트 가이드 (testing-guide.md)](docs/testing-guide.md) — 직접 실행해서 확인하는 방법(자동 시나리오 지켜보기, `npm run demo`로 직접 개입해보기)
+- [조사: MCP 세션 지연 (investigation-mcp-session-delay.md)](docs/investigation-mcp-session-delay.md) — "원인 불명의 지연"으로 남아있던 문제를 단계별로 격리해 근본 원인(`ORCHESTRATOR_DB_PATH` 누락)을 찾고 고친 기록
 
 ## 현재 상태
 
@@ -42,4 +43,4 @@ Phase 1(MVP 오케스트레이션 루프) + Phase 2(Scribe Agent/Decision Record
 - `run-demo`(`npm run demo`) — 빈 임시 디렉터리로 오케스트레이션 메커니즘 자체를 지켜보는 인터랙티브 진입점
 - `run`(`npm run start`) — `orchestrator.config.json`에 적은 **실제 프로젝트 경로**로 Agent를 띄우는 진입점 (템플릿: `orchestrator.config.example.json`)
 
-mvp-scope.md의 MVP 완료 기준 7개와 Phase 2 흐름은 실제 `claude -p` 세션으로 검증됨(실측 기록은 architecture.md 참고). Phase 3는 `npx tsc --noEmit` 통과와 스토어 계층 직접 테스트로 코드 정확성은 확인됐지만, 실제 `claude -p` 세션 왕복까지는 아직 실측하지 못했다(사유는 [backlog.md](docs/backlog.md) 참고). Scribe Agent는 `submit_decision_record` 도구 하나만 가질 수 있어 코드 수정이나 다른 Agent 지시가 구조적으로 불가능하다. 사용법은 [testing-guide.md](docs/testing-guide.md), 미해결 항목과 다음 단계는 [backlog.md](docs/backlog.md) 참고. (Windows/macOS 우선 지원, Linux는 추후 고려)
+mvp-scope.md의 MVP 완료 기준 7개, Phase 2 흐름, `npm run demo`의 전체 Q&A 왕복까지 실제 `claude -p` 세션으로 검증됨(실측 기록은 architecture.md 참고). Phase 3는 `npx tsc --noEmit` 통과와 스토어 계층 직접 테스트로 코드 정확성은 확인됐지만, Phase 3 자체의 실제 `claude -p` 세션 왕복 재시도는 아직 안 했다(경위는 [backlog.md](docs/backlog.md) 참고). Scribe Agent는 `submit_decision_record` 도구 하나만 가질 수 있어 코드 수정이나 다른 Agent 지시가 구조적으로 불가능하다. 사용법은 [testing-guide.md](docs/testing-guide.md), 미해결 항목과 다음 단계는 [backlog.md](docs/backlog.md) 참고. (Windows/macOS 우선 지원, Linux는 추후 고려)
