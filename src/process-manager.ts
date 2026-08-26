@@ -139,6 +139,11 @@ export class ProcessManager extends EventEmitter {
       env,
     });
     this.child = child;
+    // `-p` 모드는 stdin으로 파이프 입력이 오는지 최대 3초 기다렸다가 없으면 진행한다
+    // (stderr에 "no stdin data received in 3s..." 경고로 확인됨). 우리는 프롬프트를 인자로
+    // 이미 넘기고 있어서 stdin으로 줄 게 없으므로, 곧바로 닫아서 이 대기를 없앤다 —
+    // 매 턴마다 쌓이는 3초 지연이라 실사용에 누적 영향이 크다(investigation-clearinterval-hang.md).
+    child.stdin.end();
 
     // 지금까지는 stderr를 아무도 안 읽어서, claude CLI 자체가 실패해도(잘못된 인자, 인증 문제 등)
     // 원인이 전혀 안 보이고 FAILED만 찍혔다. Agent id를 붙여서 그대로 흘려보낸다.
