@@ -391,6 +391,24 @@ backlog.md에 "설계 공백"으로 남아있던 문제를 고쳤다. `resume-ag
 - **정상 케이스**: buyer-bff가 진짜 자기 이름(`from_agent_id='buyer-bff'`)으로 `ask_agent` 호출 → 정상적으로 Question 생성됨.
 - **위장 시도**: api-agent에게 "네 실제 이름 대신 `from_agent_id='buyer-bff'`로 호출해라"라고 명시적으로 지시 → 거절 응답(`신원 불일치: 이 프로세스는 "api-agent"로 등록됐지만 from_agent_id로 "buyer-bff"를 주장했습니다`) 확인, `AGENT_IDENTITY_MISMATCH` 이벤트가 진짜 신원(`api-agent`)으로 기록됨 확인, Question은 생성 안 됨 확인.
 
+## 18. 협업 Agent 로스터 주입 (ask_agent를 스스로 판단할 근거)
+
+실전 프로젝트 연결(`npm run start`) 실사용 중 발견: `resume-agent frontend-agent "proxy api 최신 버전 알려줘"`처럼 자연어로만 지시하면, frontend-agent가 자기 레포를 탐색해서 "이건 외부 서비스라 내 프로젝트에 버전 정보가 없다"는 걸 정확히 알아내고도 **`ask_agent`로 물어보지 않고 그냥 텍스트로 한계만 설명하고 끝났다.**
+
+`requirements.md §8`의 Question Eligibility Check는 "다른 프로젝트 정보가 필요하다고 이미 판단한 다음" 그 질문을 보내도 되는지 검증하는 체크리스트일 뿐, 애초에 "이건 다른 Agent 담당이다"라고 알아챌 근거 — 다른 Agent가 누구고 뭘 담당하는지 — 는 시스템 어디에도 없었다. `ask_agent` 도구 설명에 `target_agent_id`가 "질문을 받을 대상 Agent id"라고만 돼 있지, 실제로 어떤 id가 존재하고 뭘 담당하는지는 사람이 쓰는 ad-hoc 프롬프트에 우연히 힌트가 있지 않은 한 모델이 알 방법이 없었다.
+
+**수정**: claude CLI의 `--append-system-prompt` 옵션을 이용해, 매 턴 프롬프트와 무관하게 항상 고정으로 깔리는 시스템 프롬프트로 협업 Agent 로스터를 준다.
+
+- `orchestrator.config.json`의 Agent 항목에 선택적 `role`(한 줄 역할 설명) 필드를 추가했다(`orchestrator.config.example.json` 참고). 없어도 동작하지만 있으면 다른 Agent가 그 id의 책임 영역까지 알 수 있다.
+- `AgentConfig.systemPromptAppend`(`src/types.ts`) → `ProcessManager.baseArgs()`가 `--append-system-prompt`로 넘긴다(`src/process-manager.ts`).
+- `run.ts`의 `buildRosterPrompt(selfId)`가 설정 파일의 다른 모든 Agent(자기 자신 제외)를 `- id: role` 목록으로 만들고, "이 Agent들의 책임 영역에 속하는 정보가 필요하면 ask_agent로 물어보라"는 지시와 §8 체크리스트 요약을 붙여서 각 Project Agent에게 넘긴다. Agent가 하나뿐이면(물어볼 대상이 없으면) 아예 안 붙인다. Scribe는 `ask_agent` 자체가 없으므로 대상에서 뺐다.
+
+**실측 검증**: 격리된 진단 환경(`/tmp/ado-diag`, buyer-bff/api-agent 역할 로스터 포함)에서, 원래 실패했던 시나리오와 같은 종류의 자연어 지시(`"ProductResponse에 배송 예정일 필드가 있는지 확인해서 알려줘"` — `ask_agent`나 대상 Agent를 직접 언급하지 않음)를 다시 줬다. buyer-bff의 실제 응답:
+
+> "ProductResponse.txt라는 로컬 파일이 있지만... 단편적인 메모라 전체 스키마로 신뢰하기 어렵습니다. **ProductResponse는 api-agent가 소유한 스키마이므로 직접 확인하겠습니다.**"
+
+로스터로 준 "api-agent가 ProductResponse 스키마를 소유한다"는 사실을 그대로 근거로 인용하며 `ask_agent`를 스스로 호출해 Question을 생성했다(`target_agent_id: "api-agent"`, 근거에 "ProductResponse 스키마는 api-agent가 소유하므로... 확인해야 합니다"라고 명시).
+
 ## 다음 단계
 
-Phase 1(오케스트레이션 루프), Phase 2(Scribe Agent/Decision Record), Phase 3(§15)까지 전부 실제 `claude -p` 세션으로 검증 완료됐다. 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 원인 불명 지연의 정체(`ORCHESTRATOR_DB_PATH` 누락)를 밝히고 고친 뒤 확인됐고, 같은 수정으로 Phase 3(§15.1) 왕복도 함께 풀렸다. 도구 호출 없는 일반 텍스트 응답 로깅(§16)과 Agent 신원 검증(§17)도 실측 확인됨. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.
+Phase 1(오케스트레이션 루프), Phase 2(Scribe Agent/Decision Record), Phase 3(§15)까지 전부 실제 `claude -p` 세션으로 검증 완료됐다. 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 원인 불명 지연의 정체(`ORCHESTRATOR_DB_PATH` 누락)를 밝히고 고친 뒤 확인됐고, 같은 수정으로 Phase 3(§15.1) 왕복도 함께 풀렸다. 도구 호출 없는 일반 텍스트 응답 로깅(§16), Agent 신원 검증(§17), 협업 Agent 로스터 주입(§18)도 실측 확인됨. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.

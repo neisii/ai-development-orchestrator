@@ -26,6 +26,9 @@ const ConfigSchema = z.object({
       z.object({
         id: z.string().min(1),
         projectPath: z.string().min(1),
+        // 협업 Agent 로스터를 만드는 데만 쓴다(§18). 없어도 동작하지만, 있으면 다른 Agent가
+        // "이 id가 뭘 담당하는지"까지 알고 ask_agent를 쓸 근거가 생긴다.
+        role: z.string().optional(),
       })
     )
     .min(1),
@@ -83,6 +86,26 @@ function writeMcpConfig(agentId: string): string {
   return path;
 }
 
+// requirements.md §8 Question Eligibility Check는 "다른 프로젝트 정보가 필요하다고 이미
+// 판단한 다음" 그 질문을 보내도 되는지 검증하는 체크리스트다. 그런데 애초에 "이건 다른
+// Agent 담당이다"라고 알아챌 근거 — 다른 Agent가 누구고 뭘 담당하는지 — 는 시스템 어디에도
+// 없었다. 사람이 쓰는 ad-hoc 프롬프트에 우연히 힌트가 있지 않으면 Agent가 스스로 ask_agent를
+// 쓸 근거가 없다는 게 실사용 중 확인됐다(architecture.md §18). 매 턴 프롬프트와 무관하게
+// 항상 깔리도록 --append-system-prompt로 넘긴다.
+function buildRosterPrompt(selfId: string): string | undefined {
+  const others = config.agents.filter((a) => a.id !== selfId);
+  if (others.length === 0) return undefined;
+  const roster = others.map((a) => `- ${a.id}: ${a.role ?? "(역할 설명 없음)"}`).join("\n");
+  return (
+    `당신은 여러 프로젝트를 각각 담당하는 Agent들 중 하나(${selfId})입니다. 함께 협업하는 다른 Agent는 다음과 같습니다:\n` +
+    `${roster}\n\n` +
+    `당신 자신의 컨텍스트만으로 해결할 수 없는, 위 Agent의 책임 영역에 속하는 정보가 필요하면 ask_agent 도구로 ` +
+    `해당 id를 target_agent_id로 지정해 직접 물어보세요. 다만 질문을 보내기 전에 스스로 다음을 점검하세요` +
+    `(Question Eligibility Check, requirements.md §8): 현재 컨텍스트만으로 해결 가능한가? 정말 다른 프로젝트 ` +
+    `정보가 필요한가? 다른 프로젝트의 책임 영역인가? 질문 대상 Agent가 적절한가? 필요한 정보가 명확한가?`
+  );
+}
+
 const hookServer = startHookServer(config.hookPort);
 
 const db = openDb(dbPath);
@@ -115,6 +138,7 @@ for (const agentConfig of config.agents) {
     // 실제 Project Agent는 데모와 달리 역할이 고정돼 있지 않다 — 어느 프로젝트든
     // 서로 질문하고 답할 수 있어야 하므로 두 도구를 다 준다.
     allowedTools: ["mcp__orchestrator__ask_agent", "mcp__orchestrator__answer_question"],
+    systemPromptAppend: buildRosterPrompt(agentConfig.id),
   });
   pm.on("lifecycle-change", (s) => console.log(`[${agentConfig.id}] ${s}`));
   orchestrator.registerAgent(pm);

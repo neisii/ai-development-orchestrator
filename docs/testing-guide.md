@@ -158,12 +158,14 @@ cp orchestrator.config.example.json orchestrator.config.json
 ```json
 {
   "agents": [
-    { "id": "buyer-bff", "projectPath": "/Users/me/projects/buyer-bff" },
-    { "id": "api-agent", "projectPath": "/Users/me/projects/data-serving-api" }
+    { "id": "buyer-bff", "projectPath": "/Users/me/projects/buyer-bff", "role": "구매자용 BFF" },
+    { "id": "api-agent", "projectPath": "/Users/me/projects/data-serving-api", "role": "상품 데이터 API" }
   ],
   "hookPort": 8790
 }
 ```
+
+`role`은 선택 항목이다(안 채워도 동작함). 채워두면 다른 Agent들에게 "이 id가 뭘 담당하는지" 로스터로 전달되어(architecture.md §18), 자연어로만 지시해도 필요할 때 스스로 `ask_agent`를 쓸 근거가 생긴다.
 
 ```bash
 npm run start

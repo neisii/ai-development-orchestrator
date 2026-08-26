@@ -1,7 +1,15 @@
 {
   "agents": [
-    { "id": "buyer-bff", "projectPath": "/absolute/path/to/buyer-bff" },
-    { "id": "api-agent", "projectPath": "/absolute/path/to/data-serving-api" }
+    {
+      "id": "buyer-bff",
+      "projectPath": "/absolute/path/to/buyer-bff",
+      "role": "구매자용 BFF. 상품/주문 화면 렌더링 담당"
+    },
+    {
+      "id": "api-agent",
+      "projectPath": "/absolute/path/to/data-serving-api",
+      "role": "상품/재고 데이터를 제공하는 백엔드 API. 스키마 정의 소유"
+    }
   ],
   "hookPort": 8787
 }

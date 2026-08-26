@@ -41,6 +41,6 @@ Phase 1(MVP 오케스트레이션 루프) + Phase 2(Scribe Agent/Decision Record
 - `Orchestrator` — 승인된 질문/답변 자동 전달, Agent 상태 기록, Human Intervention 적용, 거절 사유가 있는 Question/Answer·Decision Intervention·거절된 Decision Record(재작성)를 Scribe Agent에게 자동 위임, 도구 호출 없는 일반 텍스트 응답도 Event Log에 기록
 - `admin-cli` — 질문/답변 승인, Event Log·Agent 상태 조회, Pause/Resume/Stop/Direct Instruction, Decision Record 검토·승인, Decision Intervention 기록(`decide-choice`), 과거 결정 검색(`search-decisions`)·파일 경로로 역추적(`show-decisions-for-file`)
 - `run-demo`(`npm run demo`) — 빈 임시 디렉터리로 오케스트레이션 메커니즘 자체를 지켜보는 인터랙티브 진입점
-- `run`(`npm run start`) — `orchestrator.config.json`에 적은 **실제 프로젝트 경로**로 Agent를 띄우는 진입점 (템플릿: `orchestrator.config.example.json`)
+- `run`(`npm run start`) — `orchestrator.config.json`에 적은 **실제 프로젝트 경로**로 Agent를 띄우는 진입점 (템플릿: `orchestrator.config.example.json`). Agent 항목에 선택적 `role`을 채우면 다른 Agent들에게 협업 로스터로 전달되어, 자연어 지시만으로도 필요할 때 스스로 `ask_agent`를 쓸 근거가 생김
 
 mvp-scope.md의 MVP 완료 기준 7개, Phase 2 흐름, Phase 3(Decision Intervention 트리거·거절 재작성·History 검색·파일 추적성 DoD 5개)까지 전부 실제 `claude -p` 세션으로 검증됨(실측 기록은 architecture.md 참고). Scribe Agent는 `submit_decision_record` 도구 하나만 가질 수 있어 코드 수정이나 다른 Agent 지시가 구조적으로 불가능하다. 사용법은 [testing-guide.md](docs/testing-guide.md), 미해결 항목과 다음 단계는 [backlog.md](docs/backlog.md) 참고. (Windows/macOS 우선 지원, Linux는 추후 고려)

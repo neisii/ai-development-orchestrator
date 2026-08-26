@@ -53,6 +53,14 @@ export interface AgentConfig {
   mcpConfigPath?: string;
   /** Event Log를 Hook 수신 서버로 보내려면 이 Agent가 로드할 settings 파일 경로. */
   settingsPath?: string;
+  /**
+   * 매 턴 프롬프트와 별개로 항상 고정으로 깔리는 시스템 프롬프트(`--append-system-prompt`).
+   * requirements.md §8 Question Eligibility Check를 실제로 적용하려면 Agent가 애초에
+   * "다른 Agent가 누구고 뭘 담당하는지"부터 알아야 하는데, 그 정보가 매번 사람이 쓰는
+   * ad-hoc 프롬프트에 우연히 들어있지 않으면 스스로 ask_agent를 쓸 근거가 없었다
+   * (실사용 중 발견 — architecture.md §18 참고). run.ts가 협업 Agent 로스터를 여기 담아 넘긴다.
+   */
+  systemPromptAppend?: string;
 }
 
 // docs/data-model.md §3 참고

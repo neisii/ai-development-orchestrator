@@ -29,6 +29,7 @@ export class ProcessManager extends EventEmitter {
   private readonly allowedTools: string[];
   private readonly mcpConfigPath: string | undefined;
   private readonly settingsPath: string | undefined;
+  private readonly systemPromptAppend: string | undefined;
 
   private child: ChildProcessWithoutNullStreams | null = null;
   private sessionId: string | null = null;
@@ -43,6 +44,7 @@ export class ProcessManager extends EventEmitter {
     this.allowedTools = config.allowedTools ?? [];
     this.mcpConfigPath = config.mcpConfigPath;
     this.settingsPath = config.settingsPath;
+    this.systemPromptAppend = config.systemPromptAppend;
   }
 
   private baseArgs(): string[] {
@@ -55,6 +57,9 @@ export class ProcessManager extends EventEmitter {
     }
     if (this.settingsPath) {
       args.push("--settings", this.settingsPath);
+    }
+    if (this.systemPromptAppend) {
+      args.push("--append-system-prompt", this.systemPromptAppend);
     }
     return args;
   }
