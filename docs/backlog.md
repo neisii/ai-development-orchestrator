@@ -2,11 +2,11 @@
 
 architecture.md/mvp-scope.md 곳곳에 흩어져 있던 미해결 항목을 한 곳에 모은다. 새로 발견되는 미해결 건은 여기 추가한다.
 
-## 원인 미확정 (재조사 조건부)
+## 설계 공백 (원인은 명확, 우선순위 낮음)
 
-| 항목 | 조건 | 근거 |
+| 항목 | 설명 | 근거 |
 |---|---|---|
-| 테스트 스크립트가 `clearInterval` 이후에도 자연 종료되지 않음 | `ProcessManager`/`Orchestrator` 단독으로는 결백 확인됨(무료 진단). 좀비 프로세스로 남지 않아 급하지 않음. Phase 3 이후 Orchestrator를 실제로 오래 띄워두게 되면(지금은 매번 스크립트를 새로 실행) 미세한 누수가 쌓이는지 재조사 — 2026-08-25에 `run.ts`를 10분 넘게 띄워둔 세션이 있었지만 이 현상 자체를 목적으로 관찰하진 않아서 조건 충족 안 함 | [architecture.md §13.4](architecture.md#134-알려진-이슈-테스트-스크립트가-자연-종료되지-않음-원인-미확정) |
+| `submit_decision_record`가 트리거 참조를 검증 안 함 | `trigger_question_id`/`trigger_answer_id`/`trigger_decision_intervention_id`가 실제로 존재하는 거절/개입 건을 가리키는지 확인하는 코드가 없다. Scribe에 대한 Direct Instruction을 막아서(architecture.md §19) 주 공격 경로는 닫혔지만, 정상 dispatch 도중 Scribe가 스스로 잘못된 트리거를 참조할 잔여 위험은 남아있다. Human의 Decision Record 승인 게이트가 실질적 방어선 역할을 하고 있어 급하지 않음 | [architecture.md §19](architecture.md#19-scribe에-대한-human-intervention-제한) |
 
 ## 다음 Phase (계획된 확장)
 

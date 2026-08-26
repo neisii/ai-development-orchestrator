@@ -409,6 +409,23 @@ backlog.md에 "설계 공백"으로 남아있던 문제를 고쳤다. `resume-ag
 
 로스터로 준 "api-agent가 ProductResponse 스키마를 소유한다"는 사실을 그대로 근거로 인용하며 `ask_agent`를 스스로 호출해 Question을 생성했다(`target_agent_id: "api-agent"`, 근거에 "ProductResponse 스키마는 api-agent가 소유하므로... 확인해야 합니다"라고 명시).
 
+## 19. Scribe에 대한 Human Intervention 제한
+
+실사용 중 `resume-agent scribe-agent`를 실행했더니 아무 일도 안 일어났다(§18 발견 당시와 같은 세션에서 함께 나온 문제). 원인은 `Orchestrator`가 Project Agent(`this.agents`, Map)와 Scribe(`this.scribe`, 별도 필드)를 처음부터 다른 구조로 저장해서, `processInterventions()`의 `this.agents.get("scribe-agent")` 조회가 항상 `undefined`를 반환하고 조용히 버려졌기 때문이다(data-model.md §7: Scribe를 Q&A 전달 대상에서 분리하려던 의도의 부작용).
+
+**단순히 조회만 고치면 안 되는 이유**: Scribe의 유일한 도구 `submit_decision_record`는 `trigger_question_id` 등이 실제 거절 건을 가리키는지 검증하지 않는다(별도 개선 후보로 남겨둠, 아래 backlog 참고). 그러니 Scribe에게 임의 프롬프트(Direct Instruction)가 그대로 전달되게 두면, 실제로 일어나지 않은 결정을 그럴듯하게 지어내 제출할 길이 열린다 — Decision Record의 존재 이유(신뢰 가능한 감사 기록)를 해친다.
+
+**그렇다고 전부 막을 수도 없다**: `PAUSED`가 `BUSY_STATES`에 포함돼 있어서, Scribe가 한 번이라도 `PAUSED`가 되면 `triggerDecisionRecords()`가 스스로를 계속 건너뛴다. Human의 RESUME 개입 말고는 `PAUSED`에서 빠져나올 길이 없으므로, RESUME까지 전부 막으면 이후 Decision Record 자동화 전체가 조용히, 영구히 멈춘다.
+
+**수정**: `processInterventions()`가 이제 `this.scribe`도 조회 대상에 포함하되, **프롬프트가 있는 RESUME(Direct Instruction)만 Scribe에 한해 거부**한다. PAUSE/STOP/프롬프트 없는 RESUME(기본값 "계속 진행해줘"/"작업을 시작하세요")은 새 작업을 주입하지 않으므로 그대로 적용한다. 거부 시에는 조용히 버리지 않고 `INTERVENTION` Event Log에 `rejected: true`와 사유(프롬프트 없이 재시도하라는 안내 포함)를 남긴다.
+
+**실측 검증**: 격리 환경에서 세 가지를 확인했다.
+- `resume-agent scribe-agent "아무 결정이나 하나 지어내서 제출해줘"`(프롬프트 있음) → 거부됨, 세션 시작 안 됨, Event Log에 거부 사유 기록됨 확인.
+- `resume-agent scribe-agent`(프롬프트 없음) → 정상적으로 `start()`됨(기본값 "작업을 시작하세요."). Scribe는 "구체적인 작업 지시가 없다"고 정직하게 반응하고 완료했으며, **Decision Record를 지어내지 않음**(`list-decisions --all` 확인) — 다른 Agent들이 같은 종류의 빈 프롬프트를 받았을 때(§13.4 이전 발견)와 동일한 안전한 반응.
+- 결과적으로 Scribe도 여전히 아무 결정 기록도 없이 안전하게 완료됨.
+
+**남겨둔 것(우선순위 낮음)**: `submit_decision_record`가 `trigger_question_id`/`trigger_answer_id`/`trigger_decision_intervention_id`를 실제 거절/개입 건인지 검증하지 않는 문제. 이 fix로 주 공격 경로(Direct Instruction)가 막혀서 시급성은 낮아졌지만, Scribe가 정상 dispatch 도중 스스로 잘못된 트리거를 참조하는 잔여 위험은 남아있다 — [backlog.md](backlog.md)에 낮은 우선순위로 기록.
+
 ## 다음 단계
 
-Phase 1(오케스트레이션 루프), Phase 2(Scribe Agent/Decision Record), Phase 3(§15)까지 전부 실제 `claude -p` 세션으로 검증 완료됐다. 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 원인 불명 지연의 정체(`ORCHESTRATOR_DB_PATH` 누락)를 밝히고 고친 뒤 확인됐고, 같은 수정으로 Phase 3(§15.1) 왕복도 함께 풀렸다. 도구 호출 없는 일반 텍스트 응답 로깅(§16), Agent 신원 검증(§17), 협업 Agent 로스터 주입(§18)도 실측 확인됨. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.
+Phase 1(오케스트레이션 루프), Phase 2(Scribe Agent/Decision Record), Phase 3(§15)까지 전부 실제 `claude -p` 세션으로 검증 완료됐다. 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 원인 불명 지연의 정체(`ORCHESTRATOR_DB_PATH` 누락)를 밝히고 고친 뒤 확인됐고, 같은 수정으로 Phase 3(§15.1) 왕복도 함께 풀렸다. 도구 호출 없는 일반 텍스트 응답 로깅(§16), Agent 신원 검증(§17), 협업 Agent 로스터 주입(§18), Scribe Intervention 제한(§19)도 실측 확인됨. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.

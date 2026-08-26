@@ -147,12 +147,42 @@ export class Orchestrator {
    * §12: Pause/Resume/Stop과, 프롬프트가 있는 RESUME으로 표현되는 Direct Instruction을 처리한다.
    * RESUME은 대상 Agent가 아직 바쁘면(예: 방금 보낸 PAUSE가 아직 반영되기 전) 이번 tick에서는
    * 넘기고 다음 tick에 재시도한다 — Question/Answer 전달과 같은 재시도 방식.
+   *
+   * Scribe는 PAUSE/STOP/프롬프트 없는 RESUME까지는 그대로 적용하지만, 프롬프트가 있는
+   * RESUME(Direct Instruction)만은 거부한다 — Scribe의 유일한 도구(`submit_decision_record`)는
+   * 트리거 참조가 실제인지 검증하지 않으므로, 임의 프롬프트를 허용하면 근거 없는 Decision
+   * Record를 지어내 제출할 길이 열린다(§18 자가신고 문제와 같은 종류). PAUSE/STOP과
+   * 프롬프트 없는 RESUME은 새 작업을 주입하지 않아 이 위험이 없고, 오히려 프롬프트 없는
+   * RESUME까지 막으면 한 번 PAUSED된 Scribe가 영원히 못 깨어난다(PAUSED가 BUSY_STATES에
+   * 있어 `triggerDecisionRecords()`가 계속 스스로를 건너뜀) — 그래서 반드시 남겨둬야 한다.
    */
   private processInterventions(): void {
     for (const iv of this.interventionStore.listPending()) {
-      const pm = this.agents.get(iv.agentId);
+      const isScribe = this.scribe?.id === iv.agentId;
+      const pm = this.agents.get(iv.agentId) ?? (isScribe ? this.scribe : undefined);
       if (!pm) {
         this.interventionStore.markApplied(iv.id); // 모르는 Agent면 버린다
+        continue;
+      }
+
+      if (isScribe && iv.kind === "RESUME" && iv.prompt) {
+        this.eventLog.record({
+          agentId: iv.agentId,
+          sessionId: pm.getState().sessionId,
+          type: "INTERVENTION",
+          source: "orchestrator",
+          payload: {
+            kind: iv.kind,
+            prompt: iv.prompt,
+            requestedBy: iv.requestedBy,
+            rejected: true,
+            reason:
+              "scribe-agent는 정해진 트리거(Question/Answer 거절 사유, Decision Intervention, 초안 재작성)로만 " +
+              "자동 실행됩니다. 임의 프롬프트로 개입할 수 없습니다 — 진행 중이던 턴을 재개하려면 프롬프트 없이 " +
+              "resume-agent scribe-agent를 실행하세요.",
+          },
+        });
+        this.interventionStore.markApplied(iv.id);
         continue;
       }
 
