@@ -61,4 +61,4 @@
 
 **CLI 버전 업데이트(v2.1.238 → v2.1.245)로 해결된 것으로 판단한다.** 원래 버그를 촉발했던 시나리오(Scribe 포함, MCP 서버 서브프로세스 spawn 포함)를 실제 세션으로 그대로 재현했는데도 더 이상 걸리지 않는다. §13.4에서 이미 "ProcessManager/Orchestrator 자체는 결백"이라고 봤던 것과 종합하면, 원인은 그 시점의 claude CLI 자체에 있었고 이후 버전에서 고쳐진 것으로 보인다 — 우리 쪽 코드 수정은 필요 없다.
 
-**부수적으로 발견한, 별개의 실제 개선 여지**: `ProcessManager.spawnProcess()`가 `child.stdin`을 한 번도 안 닫아서, 지금 이 프로젝트의 **모든 Agent 턴마다** claude CLI가 stdin을 3초간 기다렸다가 진행한다(`Warning: no stdin data received in 3s...`). `child.stdin.end()` 한 줄로 이 지연이 없어지는 걸 실측으로 확인했다. `clearInterval` 버그와는 무관하지만, 실사용 시 매 턴 3초씩 누적되는 진짜 성능 문제라 별도로 고칠 가치가 있다.
+**부수적으로 발견한, 별개의 실제 개선 여지(해결됨)**: `ProcessManager.spawnProcess()`가 `child.stdin`을 한 번도 안 닫아서, 지금 이 프로젝트의 **모든 Agent 턴마다** claude CLI가 stdin을 3초간 기다렸다가 진행했다(`Warning: no stdin data received in 3s...`). `clearInterval` 버그와는 무관했지만 실사용 시 매 턴 3초씩 누적되는 진짜 성능 문제라 `child.stdin.end()`를 실제로 추가했다. 수정 후 "hi" 한 턴이 `STARTING → RUNNING` 0.8초, 전체 3.1초로 끝났고 stdin 경고도 사라졌다(2026-08-26 실측, `src/process-manager.ts`).
