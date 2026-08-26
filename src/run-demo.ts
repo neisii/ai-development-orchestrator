@@ -83,6 +83,13 @@ function logLifecycle(id: string, state: string): void {
   }
 }
 
+// Orchestrator도 같은 이벤트를 구독해서 Event Log(ASSISTANT_MESSAGE)에 기록하지만, 그건
+// admin-cli list-events로 나중에 조회해야 보인다. 여기서는 같은 이벤트를 이 콘솔에도 바로
+// 찍어서, 도구 호출 없는 일반 텍스트 응답도 그 자리에서 실시간으로 볼 수 있게 한다.
+function logAssistantMessage(id: string, text: string): void {
+  console.log(`[${id}] 응답: ${text}`);
+}
+
 function makeAgent(id: string, tool: string): ProcessManager {
   const projectPath = mkdtempSync(join(tmpdir(), `ado-demo-${id}-`));
   const pm = new ProcessManager({
@@ -92,6 +99,7 @@ function makeAgent(id: string, tool: string): ProcessManager {
     allowedTools: [`mcp__orchestrator__${tool}`],
   });
   pm.on("lifecycle-change", (s) => logLifecycle(id, s));
+  pm.on("assistant-message", (text) => logAssistantMessage(id, text));
   return pm;
 }
 
