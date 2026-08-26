@@ -214,3 +214,4 @@ npm run demo   # 또는 npm run start
 - **`npm run demo`/`npm run start`를 두 번 동시에 띄웠다**: 같은 `.orchestrator/data.db`를 두 프로세스가 동시에 쓰면서 Agent 상태가 꼬인다. 하나를 반드시 끄고(`Ctrl+C` 또는 `pkill -f run-demo.ts` / `pkill -f run.ts`), `.orchestrator`를 지운 뒤 하나만 다시 띄운다.
 - **`npm run start`가 "설정 파일을 찾을 수 없습니다"로 바로 종료된다**: `orchestrator.config.json`이 없다는 뜻. `cp orchestrator.config.example.json orchestrator.config.json` 후 실제 경로로 채운다.
 - **`npm run start`가 "projectPath가 존재하지 않습니다"로 종료된다**: `orchestrator.config.json`에 적은 경로가 실제로 없는 디렉터리다. 절대 경로인지, 오타는 없는지 확인한다.
+- **`resume-agent scribe-agent "..."`(프롬프트를 줌)를 실행해도 아무 반응이 없다**: 의도된 동작이다. scribe-agent는 직접 띄울 필요가 없다 — Question/Answer 거절 사유, Decision Intervention, 초안 재작성 같은 정해진 트리거로만 자동 실행된다. 프롬프트 있는 개입은 근거 없는 Decision Record를 지어낼 위험이 있어 거부되며, `list-events scribe-agent`로 거부 사유를 확인할 수 있다(architecture.md §19). 프롬프트 없이 `resume-agent scribe-agent`만 실행하는 건 허용된다(예: 일시정지된 걸 재개할 때).

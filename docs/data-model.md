@@ -211,6 +211,10 @@ requirements.md §12는 Execution Control(Pause/Resume/Stop/Cancel)과 Direct In
 
 Orchestrator는 미적용 상태(`appliedAt IS NULL`)인 Intervention을 `requestedAt` 순서로 폴링하며 처리한다. `RESUME`은 대상 Agent의 프로세스가 아직 살아있으면(예: 방금 보낸 `PAUSE`가 아직 반영되기 전) 이번 주기에는 건너뛰고 다음 주기에 재시도한다 — Question/Answer 전달과 같은 재시도 방식이다. 적용에 성공하면 `EVENT_LOG`에 `type: INTERVENTION`, `payload: { kind, prompt, requestedBy }`로 기록한다(§5.2).
 
+### 6.4 예외: Scribe Agent
+
+Scribe는 `PAUSE`/`STOP`/프롬프트 없는 `RESUME`은 다른 Agent와 동일하게 적용받지만, **프롬프트가 있는 `RESUME`(Direct Instruction)만은 거부**된다 — Scribe의 유일한 도구(`submit_decision_record`)가 트리거 참조를 검증하지 않아서, 임의 프롬프트를 허용하면 근거 없는 Decision Record를 지어낼 길이 열리기 때문이다(requirements.md §19 "Scribe는 결정하지 않는다"와 같은 원칙 — §7.4 참고). 이 경우 `appliedAt`은 그대로 채워지지만(재시도 대상에서는 빠짐), `EVENT_LOG` payload에 `rejected: true`와 `reason`이 추가로 담긴다 — 조용히 사라지지 않고 왜 적용 안 됐는지 남긴다. 자세한 근거와 실측 검증은 [architecture.md §19](architecture.md#19-scribe에-대한-human-intervention-제한) 참고.
+
 ## 7. Decision Record (Phase 2 + Phase 3)
 
 requirements.md §15~20 참고. §3~6까지의 모든 엔티티와 같은 "요청/초안 → Human 승인 → 확정" 패턴을 그대로 따른다: Question/Answer 거절(사유 포함)이나 Decision Intervention(§7.5)이 자동으로 Scribe Agent를 깨우는 트리거가 되고, Scribe가 초안을 작성하면 Human이 승인해야 확정된다. Phase 3 범위 정의는 [phase3-scope.md](phase3-scope.md) 참고.
@@ -266,9 +270,9 @@ Question/Answer와 달리 `submit_decision_record` 호출은 Human 결정을 기
 
 **`REJECTED`는 종단 상태가 아니다(phase3-scope.md §2).** Question/Answer는 거절 사유가 도구 호출 응답으로 그 자리에서 돌아가 Agent가 재시도할 수 있지만, Decision Record는 Scribe가 응답을 기다리지 않으므로 같은 경로가 없다. 대신 거절 시 `REVISING`으로 돌아가고, Orchestrator가 §7.2의 최우선순위로 그 사유를 담아 Scribe를 다시 깨운다. Scribe가 `submit_decision_record`를 `revising_decision_record_id`와 함께 재호출하면 **새 레코드가 아니라 같은 레코드**가 갱신되고 다시 `DRAFT`로 돌아가 Human 승인을 기다린다.
 
-### 7.4 Scribe Agent의 도구 제약 (§19 강제)
+### 7.4 Scribe Agent의 도구 제약 (requirements.md §19 강제)
 
-Scribe Agent용 `ProcessManager`에는 `allowedTools`로 `submit_decision_record` 단 하나만 준다. `Bash`/`Edit`/`Write`/`ask_agent` 등은 애초에 주어지지 않으므로 "Scribe가 코드를 고치거나 다른 Agent에게 구현을 지시하는" 시나리오 자체가 구조적으로 불가능하다 — §19 "Scribe는 결정하지 않는다"를 프롬프트 지시가 아니라 도구 권한으로 강제한다.
+Scribe Agent용 `ProcessManager`에는 `allowedTools`로 `submit_decision_record` 단 하나만 준다. `Bash`/`Edit`/`Write`/`ask_agent` 등은 애초에 주어지지 않으므로 "Scribe가 코드를 고치거나 다른 Agent에게 구현을 지시하는" 시나리오 자체가 구조적으로 불가능하다 — requirements.md §19 "Scribe는 결정하지 않는다"를 프롬프트 지시가 아니라 도구 권한으로 강제한다. Human Intervention 쪽에서도 같은 원칙이 적용된다 — [architecture.md §19](architecture.md#19-scribe에-대한-human-intervention-제한)에서 Scribe에게 임의 프롬프트(Direct Instruction)가 못 닿게 막은 것도 이 원칙의 연장선이다.
 
 ### 7.5 Decision Intervention (Phase 3, requirements.md §12.4)
 
