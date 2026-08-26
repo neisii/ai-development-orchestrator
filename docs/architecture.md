@@ -424,8 +424,21 @@ backlog.md에 "설계 공백"으로 남아있던 문제를 고쳤다. `resume-ag
 - `resume-agent scribe-agent`(프롬프트 없음) → 정상적으로 `start()`됨(기본값 "작업을 시작하세요."). Scribe는 "구체적인 작업 지시가 없다"고 정직하게 반응하고 완료했으며, **Decision Record를 지어내지 않음**(`list-decisions --all` 확인) — 다른 Agent들이 같은 종류의 빈 프롬프트를 받았을 때(§13.4 이전 발견)와 동일한 안전한 반응.
 - 결과적으로 Scribe도 여전히 아무 결정 기록도 없이 안전하게 완료됨.
 
-**남겨둔 것(우선순위 낮음)**: `submit_decision_record`가 `trigger_question_id`/`trigger_answer_id`/`trigger_decision_intervention_id`를 실제 거절/개입 건인지 검증하지 않는 문제. 이 fix로 주 공격 경로(Direct Instruction)가 막혀서 시급성은 낮아졌지만, Scribe가 정상 dispatch 도중 스스로 잘못된 트리거를 참조하는 잔여 위험은 남아있다 — [backlog.md](backlog.md)에 낮은 우선순위로 기록.
+**남겨둔 것(우선순위 낮음, §20에서 해결)**: `submit_decision_record`가 `trigger_question_id`/`trigger_answer_id`/`trigger_decision_intervention_id`를 실제 거절/개입 건인지 검증하지 않는 문제. 이 fix로 주 공격 경로(Direct Instruction)가 막혀서 시급성은 낮아졌지만, Scribe가 정상 dispatch 도중 스스로 잘못된 트리거를 참조하는 잔여 위험은 남아있다.
+
+## 20. Decision Record 트리거 참조 검증
+
+§19에서 남겨둔 잔여 위험을 마저 닫았다. `mcp-server.ts`의 `validateTrigger()`가 `submit_decision_record`(새 레코드 생성 경로에만 — 재작성은 `update()`가 이미 `WHERE status='REVISING'`으로 검증하고 있어서 대상 아님) 호출 시 두 가지를 확인한다.
+
+- **`trigger_type`과 채워진 id가 정확히 하나만 짝이 맞는지**: 예를 들어 `QUESTION_REJECTED`인데 `trigger_question_id`가 비어있거나 다른 트리거 id가 같이 채워져 있으면 거절.
+- **그 id가 실제로 존재하고 자격이 있는지**: `QUESTION_REJECTED`/`ANSWER_REJECTED`는 해당 Question/Answer가 실제로 `REJECTED` 상태이고 `reviewReason`이 있는지, `DECISION_INTERVENTION`은 `decision_intervention_requests`에 그 id가 실제로 있는지 `store.getQuestion()`/`getAnswer()`/`decisionInterventions.get()`으로 직접 조회해서 확인한다.
+
+`from_agent_id` 자가신고 문제(§16~17)와 같은 원칙 — 자기가 주장하는 값을 그냥 믿지 않고 실제 데이터와 대조한다.
+
+**실측 검증**: 격리 환경에서 두 가지를 확인했다.
+- **가짜 트리거**: `trigger_question_id='nonexistent-fake-id-12345'`로 직접 호출 → `"trigger_question_id nonexistent-fake-id-12345는 사유가 있는 거절된 질문이 아닙니다"`로 거절, Decision Record 생성 안 됨(`list-decisions --all`로 확인).
+- **정상 흐름 회귀 테스트**: 질문 생성 → 승인 → 사유 있는 거절 → Scribe 자동 기동 → 실제 `question_id`로 `submit_decision_record` 호출 → 정상적으로 DRAFT 생성됨 — 검증 추가가 기존 흐름을 안 깬다는 것 확인.
 
 ## 다음 단계
 
-Phase 1(오케스트레이션 루프), Phase 2(Scribe Agent/Decision Record), Phase 3(§15)까지 전부 실제 `claude -p` 세션으로 검증 완료됐다. 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 원인 불명 지연의 정체(`ORCHESTRATOR_DB_PATH` 누락)를 밝히고 고친 뒤 확인됐고, 같은 수정으로 Phase 3(§15.1) 왕복도 함께 풀렸다. 도구 호출 없는 일반 텍스트 응답 로깅(§16), Agent 신원 검증(§17), 협업 Agent 로스터 주입(§18), Scribe Intervention 제한(§19)도 실측 확인됨. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.
+Phase 1(오케스트레이션 루프), Phase 2(Scribe Agent/Decision Record), Phase 3(§15)까지 전부 실제 `claude -p` 세션으로 검증 완료됐다. 인터랙티브 데모(§14)의 전체 왕복도 §14.4에서 원인 불명 지연의 정체(`ORCHESTRATOR_DB_PATH` 누락)를 밝히고 고친 뒤 확인됐고, 같은 수정으로 Phase 3(§15.1) 왕복도 함께 풀렸다. 도구 호출 없는 일반 텍스트 응답 로깅(§16), Agent 신원 검증(§17), 협업 Agent 로스터 주입(§18), Scribe Intervention 제한(§19), Decision Record 트리거 참조 검증(§20)도 실측 확인됨. 미해결 항목과 다음 Phase 계획은 [backlog.md](backlog.md)에 모아뒀다.

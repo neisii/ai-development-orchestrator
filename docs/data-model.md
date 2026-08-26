@@ -213,7 +213,7 @@ Orchestrator는 미적용 상태(`appliedAt IS NULL`)인 Intervention을 `reques
 
 ### 6.4 예외: Scribe Agent
 
-Scribe는 `PAUSE`/`STOP`/프롬프트 없는 `RESUME`은 다른 Agent와 동일하게 적용받지만, **프롬프트가 있는 `RESUME`(Direct Instruction)만은 거부**된다 — Scribe의 유일한 도구(`submit_decision_record`)가 트리거 참조를 검증하지 않아서, 임의 프롬프트를 허용하면 근거 없는 Decision Record를 지어낼 길이 열리기 때문이다(requirements.md §19 "Scribe는 결정하지 않는다"와 같은 원칙 — §7.4 참고). 이 경우 `appliedAt`은 그대로 채워지지만(재시도 대상에서는 빠짐), `EVENT_LOG` payload에 `rejected: true`와 `reason`이 추가로 담긴다 — 조용히 사라지지 않고 왜 적용 안 됐는지 남긴다. 자세한 근거와 실측 검증은 [architecture.md §19](architecture.md#19-scribe에-대한-human-intervention-제한) 참고.
+Scribe는 `PAUSE`/`STOP`/프롬프트 없는 `RESUME`은 다른 Agent와 동일하게 적용받지만, **프롬프트가 있는 `RESUME`(Direct Instruction)만은 거부**된다 — `submit_decision_record`가 이제 트리거 참조가 실제인지는 검증하지만(§7.8), 그 트리거에 실제로 맞는 내용을 썼는지까지는 검증할 방법이 없다. 임의 프롬프트를 허용하면 실제 존재하는 트리거를 갖다 붙이되 내용은 지어낸 Decision Record가 나올 길이 여전히 열려있기 때문이다(requirements.md §19 "Scribe는 결정하지 않는다"와 같은 원칙 — §7.4 참고). 이 경우 `appliedAt`은 그대로 채워지지만(재시도 대상에서는 빠짐), `EVENT_LOG` payload에 `rejected: true`와 `reason`이 추가로 담긴다 — 조용히 사라지지 않고 왜 적용 안 됐는지 남긴다. 자세한 근거와 실측 검증은 [architecture.md §19](architecture.md#19-scribe에-대한-human-intervention-제한) 참고.
 
 ## 7. Decision Record (Phase 2 + Phase 3)
 
@@ -294,6 +294,10 @@ Agent가 A안/B안 같은 선택지를 제안하고 Human이 그중 하나를 �
 ### 7.7 Code ↔ Decision Record 추적성 (requirements.md §21~22, phase3-scope.md §4)
 
 `admin-cli show-decisions-for-file <path>`로 `relatedFilePaths`에 특정 경로가 포함된 Decision Record를 역으로 찾는다. git 커밋 연동은 하지 않는다 — Event Log에 아직 커밋 시점을 관측할 신호가 없다.
+
+### 7.8 트리거 참조 검증
+
+`trigger_question_id`/`trigger_answer_id`/`trigger_decision_intervention_id`는 Scribe가 도구 호출 인자로 스스로 적어 넣는 값이라 그 자체로는 실제 트리거를 증명하지 못한다(`from_agent_id`와 같은 종류의 자가신고 문제). `mcp-server.ts`가 새 레코드 생성 시(재작성은 대상 아님 — `update()`가 이미 `WHERE status='REVISING'`으로 검증함) `trigger_type`과 채워진 id가 정확히 하나만 짝이 맞는지, 그리고 그 id가 실제로 존재하고 자격이 있는지(Question/Answer는 `REJECTED` + `reviewReason` 있음, Decision Intervention은 존재 자체)를 확인한 뒤에만 `create()`를 호출한다. 실측 검증은 [architecture.md §20](architecture.md#20-decision-record-트리거-참조-검증) 참고.
 
 ## 8. 전체 관계
 

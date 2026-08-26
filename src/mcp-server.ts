@@ -5,6 +5,7 @@ import { openDb } from "./db.js";
 import { QaStore } from "./qa-store.js";
 import { EventLogStore } from "./event-log.js";
 import { DecisionRecordStore } from "./decision-record-store.js";
+import { DecisionInterventionStore } from "./decision-intervention-store.js";
 import { ANSWER_CONTENT_STATUSES } from "./types.js";
 
 // docs/architecture.md §3, §7, §12.4 / docs/data-model.md §3~5 참고.
@@ -22,6 +23,7 @@ const db = openDb();
 const eventLog = new EventLogStore(db);
 const store = new QaStore(db, eventLog);
 const decisionRecords = new DecisionRecordStore(db, eventLog);
+const decisionInterventions = new DecisionInterventionStore(db, eventLog);
 
 const server = new McpServer({ name: "orchestrator", version: "0.1.0" });
 
@@ -49,6 +51,46 @@ function checkAgentIdentity(claimedId: string, tool: string) {
       },
     ],
   };
+}
+
+// architecture.md §19 / backlog.md 참고: Direct Instruction을 Scribe에서 막았어도, submit_decision_record
+// 자체가 trigger_question_id 등을 실제 거절/개입 건인지 검증하지 않으면 Scribe가 정상 dispatch 도중
+// 스스로 잘못된(또는 존재하지 않는) 트리거를 참조해 제출할 여지가 남는다 — from_agent_id 자가신고
+// 문제(§16~17)와 같은 종류다. trigger_type과 실제로 짝이 맞는 하나의 id만 채워졌는지, 그 id가
+// 가리키는 행이 실제로 존재하고 자격이 있는지(거절 상태 + 사유 있음)를 확인한다.
+function validateTrigger(input: {
+  trigger_type: "QUESTION_REJECTED" | "ANSWER_REJECTED" | "DECISION_INTERVENTION";
+  trigger_question_id: string | null;
+  trigger_answer_id: string | null;
+  trigger_decision_intervention_id: string | null;
+}) {
+  const fail = (text: string) => ({ isError: true, content: [{ type: "text" as const, text }] });
+
+  if (input.trigger_type === "QUESTION_REJECTED") {
+    if (!input.trigger_question_id || input.trigger_answer_id || input.trigger_decision_intervention_id) {
+      return fail("trigger_type이 QUESTION_REJECTED면 trigger_question_id만 채우고 나머지는 null이어야 합니다.");
+    }
+    const q = store.getQuestion(input.trigger_question_id);
+    if (!q || q.status !== "REJECTED" || !q.reviewReason) {
+      return fail(`trigger_question_id ${input.trigger_question_id}는 사유가 있는 거절된 질문이 아닙니다.`);
+    }
+  } else if (input.trigger_type === "ANSWER_REJECTED") {
+    if (!input.trigger_answer_id || input.trigger_question_id || input.trigger_decision_intervention_id) {
+      return fail("trigger_type이 ANSWER_REJECTED면 trigger_answer_id만 채우고 나머지는 null이어야 합니다.");
+    }
+    const a = store.getAnswer(input.trigger_answer_id);
+    if (!a || a.reviewStatus !== "REJECTED" || !a.reviewReason) {
+      return fail(`trigger_answer_id ${input.trigger_answer_id}는 사유가 있는 거절된 답변이 아닙니다.`);
+    }
+  } else {
+    if (!input.trigger_decision_intervention_id || input.trigger_question_id || input.trigger_answer_id) {
+      return fail("trigger_type이 DECISION_INTERVENTION이면 trigger_decision_intervention_id만 채우고 나머지는 null이어야 합니다.");
+    }
+    if (!decisionInterventions.get(input.trigger_decision_intervention_id)) {
+      return fail(`trigger_decision_intervention_id ${input.trigger_decision_intervention_id}를 찾을 수 없습니다.`);
+    }
+  }
+  return null;
 }
 
 server.registerTool(
@@ -230,6 +272,9 @@ server.registerTool(
         ],
       };
     }
+
+    const invalid = validateTrigger(input);
+    if (invalid) return invalid;
 
     const record = decisionRecords.create({
       triggerType: input.trigger_type,
