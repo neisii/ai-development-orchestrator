@@ -52,6 +52,6 @@ MVP가 검증되면 다음 순서로 확장한다. 미해결 항목을 모아둔
 
 - **Phase 2 (완료)**: Scribe Agent 도입, 최소 Decision Record(배경/문제/선택지/결정/근거) 기록. 실제 `claude -p` 세션으로 검증됨 — [architecture.md §13](architecture.md#13-phase-2-scribe-agent와-decision-record) 참고.
 - **Phase 3 (완료)**: Decision Context 공식화(Decision Intervention 트리거, 거절 재작성), Decision History 재활용, Code ↔ Decision Record 추적성. 완료 기준 5개 전부 실제 `claude -p` 세션으로 검증됨 — [phase3-scope.md](phase3-scope.md) 참고.
-- **Phase 4+**: 3개 이상 프로젝트 확장, Linux 지원 검토. 인터페이스 고도화(웹 UI 등)는 requirements.md §3의 기술 선택 기준(성능·리소스 효율 포함)에 따라 그 시점에 별도로 판단한다.
+- **Phase 4 (후보)**: 인터페이스 고도화(웹 UI 등) — 설계에 앞서 필요성부터 판단한다. 3개 이상 프로젝트 확장(신규 개발 불필요, 검증 작업)과 Linux 지원 검토(테스트 환경 확보 조건부)는 별도 Phase가 아니라 [backlog.md](backlog.md#지금-처리할-필요-없음-조건부-트리거)에서 관리한다.
 
   **선행 조건(해결됨)**: "Agent 신원 자가 신고" 한계 — [architecture.md §17](architecture.md#17-agent-신원-검증-123-해결) 참고. Agent별 mcp-config에 `ORCHESTRATOR_AGENT_ID`를 심어 연결 자체를 신뢰 경계로 쓰고, `from_agent_id` 인자가 이와 다르면 거절 + Event Log 기록하도록 고쳤다.
