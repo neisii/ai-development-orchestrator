@@ -30,6 +30,7 @@ Human-in-the-loop orchestration system for coordinating multiple AI agents acros
 - [백로그 (backlog.md)](docs/backlog.md) — 미해결 항목, 조건부 트리거, 다음 Phase 계획
 - [실 테스트 가이드 (testing-guide.md)](docs/testing-guide.md) — 직접 실행해서 확인하는 방법(자동 시나리오 지켜보기, `npm run demo`로 직접 개입해보기)
 - [조사: MCP 세션 지연 (investigation-mcp-session-delay.md)](docs/investigation-mcp-session-delay.md) — "원인 불명의 지연"으로 남아있던 문제를 단계별로 격리해 근본 원인(`ORCHESTRATOR_DB_PATH` 누락)을 찾고 고친 기록
+- [실전 프로젝트 검증 (real-project-verification.md)](docs/real-project-verification.md) — 스크래치가 아닌 실제 사용자 프로젝트 두 개에 연결해서, Q&A 왕복/거절·재작성/Decision Intervention/Pause·Direct Instruction/Scribe 개입 제한/트리거 검증/History 검색까지 8개 시나리오를 실측 검증한 기록
 
 ## 현재 상태
 
@@ -43,4 +44,4 @@ Phase 1(MVP 오케스트레이션 루프) + Phase 2(Scribe Agent/Decision Record
 - `run-demo`(`npm run demo`) — 빈 임시 디렉터리로 오케스트레이션 메커니즘 자체를 지켜보는 인터랙티브 진입점
 - `run`(`npm run start`) — `orchestrator.config.json`에 적은 **실제 프로젝트 경로**로 Agent를 띄우는 진입점 (템플릿: `orchestrator.config.example.json`). Agent 항목에 선택적 `role`을 채우면 다른 Agent들에게 협업 로스터로 전달되어, 자연어 지시만으로도 필요할 때 스스로 `ask_agent`를 쓸 근거가 생김
 
-mvp-scope.md의 MVP 완료 기준 7개, Phase 2 흐름, Phase 3(Decision Intervention 트리거·거절 재작성·History 검색·파일 추적성 DoD 5개)까지 전부 실제 `claude -p` 세션으로 검증됨(실측 기록은 architecture.md 참고). Scribe Agent는 `submit_decision_record` 도구 하나만 가질 수 있어 코드 수정이나 다른 Agent 지시가 구조적으로 불가능하다. 사용법은 [testing-guide.md](docs/testing-guide.md), 미해결 항목과 다음 단계는 [backlog.md](docs/backlog.md) 참고. (Windows/macOS 우선 지원, Linux는 추후 고려)
+mvp-scope.md의 MVP 완료 기준 7개, Phase 2 흐름, Phase 3(Decision Intervention 트리거·거절 재작성·History 검색·파일 추적성 DoD 5개)까지 전부 실제 `claude -p` 세션으로 검증됨(실측 기록은 architecture.md 참고). 스크래치 환경뿐 아니라 **실제 사용자 프로젝트 두 개에 연결한 상태**로도 전체 시나리오가 재검증됐다([real-project-verification.md](docs/real-project-verification.md)). Scribe Agent는 `submit_decision_record` 도구 하나만 가질 수 있어 코드 수정이나 다른 Agent 지시가 구조적으로 불가능하다. 사용법은 [testing-guide.md](docs/testing-guide.md), 미해결 항목과 다음 단계는 [backlog.md](docs/backlog.md) 참고. (Windows/macOS 우선 지원, Linux는 추후 고려)
