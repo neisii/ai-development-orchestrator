@@ -1,6 +1,6 @@
 # 실전 프로젝트 시나리오별 검증 (2026-08-26)
 
-지금까지의 기능 검증은 대부분 스크래치 임시 디렉터리(`npm run demo`, `manual-test-*.ts`) 또는 격리된 진단 환경(`/tmp/ado-diag`)에서 이뤄졌다. 이 문서는 **실제 사용자 프로젝트 두 개**(`orchestrator.config.json`에 등록된 `frontend-agent`(ai-demo-cycling-adviser)/`proxy-agent`(ai-demo-weather-proxy))에 `npm run start`로 직접 연결해서, 최근 추가된 기능들을 포함한 전체 시나리오를 순서대로 재현한 기록이다.
+지금까지의 기능 검증은 대부분 스크래치 임시 디렉터리(`npm run demo`, `manual-test-*.ts`) 또는 격리된 진단 환경(`/tmp/ado-diag`)에서 이뤄졌다. 이 문서는 **실제 사용자 프로젝트 두 개**(`orchestrator.config.json`에 등록된 `frontend-agent`(ai-demo-cycling-adviser)/`proxy-agent`(ai-demo-weather-proxy))에 `npm run start`로 직접 연결해서, 최근 추가된 기능들을 포함한 전체 시나리오를 순서대로 재현한 기록이다. 이후 [시나리오 9](#시나리오-9-3개-이상-프로젝트로의-확장-2026-08-26-추가-검증)에서 세 번째 프로젝트(`notes-agent`)를 더해 3개 이상으로의 확장까지 검증했다.
 
 이 프로젝트 자체(Agent 2개 + 실제 코드베이스)가 이미 [architecture.md §17](architecture.md#17-agent-신원-검증-123-해결)/[mvp-scope.md](mvp-scope.md#phase-2-이후와의-관계)에서 "Agent 신원 자가 신고" 해결의 트리거 조건("실제 코드베이스를 다루기 시작하는 시점")에 해당한다 — 이번 검증으로 그 조건이 실제로 충족된 채 전체 기능이 정상 동작함을 확인했다.
 
