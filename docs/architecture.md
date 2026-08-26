@@ -181,7 +181,7 @@ Agent 상태(`ANALYZING`/`IMPLEMENTING`/`WAITING_APPROVAL` 등)는 오케스트�
 ## 11. 미해결 사항
 
 - ~~`SIGTERM` 이후 `--resume` 시 새 프롬프트 없이 순수하게 미완료 턴만 이어가는 것이 가능한지~~ → §5.1 실측 검증에서 해소. 불가능하며, 항상 프롬프트가 필요하다.
-- Answer 상태 enum, Agent 상태 enum의 정확한 스키마 — 데이터 모델 설계 단계에서 확정
+- ~~Answer 상태 enum, Agent 상태 enum의 정확한 스키마~~ → [data-model.md §2.2](data-model.md#22-lifecycle-state-신뢰-가능-오케스트레이터-동작을-결정)/[§4.2~4.3](data-model.md#42-content-status-11-그대로-채택)에서 확정되고 `src/types.ts`에 구현·검증됨.
 - ~~`ask_agent` MCP 도구 호출에 대한 응답을 오케스트레이터가 얼마나 오래 보류할 수 있는지(타임아웃 존재 여부)~~ → §4.1 실측 검증에서 해소. 최소 5분까지는 타임아웃 없음. 그 이상 장시간 보류는 별도 안전장치 필요
 - 위 기능들의 정확한 도입 버전 (공식 문서에 명시 없음, 필요시 Anthropic 문의)
 - 일부 환경에서는 Bash 도구 호출이 즉시 실행되지 않고 자체 백그라운드 Task로 위임되어(`task_started`/`task_notification` 이벤트) 예상보다 훨씬 빨리 끝나는 것이 관찰됐다. 이게 특정 환경/플러그인 설정에 국한된 동작인지, 일반적인 Claude Code 동작인지 확인되지 않았다. 오케스트레이터가 "도구 실행 중 여부"를 판단할 때 이 가능성을 감안해야 할 수 있다.
