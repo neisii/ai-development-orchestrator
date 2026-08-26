@@ -37,6 +37,16 @@ import type { DecisionRecord } from "./types.js";
 
 const REVIEWER = "human";
 
+// DB에는 그대로 UTC(ISO 8601)로 저장한다 — 정렬/비교에 안전하고 다른 프로세스와 공유하기도
+// 쉽다. 여기 admin-cli는 사람이 직접 읽는 화면이라 표시할 때만 KST로 바꾼다(§1의 "원시 데이터와
+// 파생 표시를 분리한다" 원칙과 같은 방식 — 저장 형식과 표시 형식을 섞지 않는다).
+function formatKst(iso: string): string {
+  const d = new Date(iso);
+  const datePart = d.toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+  const timePart = d.toLocaleTimeString("en-GB", { timeZone: "Asia/Seoul", hour12: false });
+  return `${datePart} ${timePart} KST`;
+}
+
 const db = openDb();
 const eventLog = new EventLogStore(db);
 const store = new QaStore(db, eventLog);
@@ -58,7 +68,7 @@ switch (command) {
       console.log(`[${q.id}] ${q.fromAgentId} -> ${q.toAgentId}`);
       console.log(`  질문: ${q.text}`);
       console.log(`  근거: ${q.selfJustification}`);
-      console.log(`  생성: ${q.createdAt}`);
+      console.log(`  생성: ${formatKst(q.createdAt)}`);
     }
     break;
   }
@@ -81,7 +91,7 @@ switch (command) {
       const q = store.getQuestion(a.questionId);
       console.log(`[${a.id}] questionId=${a.questionId} (${q?.text ?? "질문 정보 없음"})`);
       console.log(`  답변(${a.contentStatus}): ${a.text}`);
-      console.log(`  생성: ${a.createdAt}`);
+      console.log(`  생성: ${formatKst(a.createdAt)}`);
     }
     break;
   }
@@ -102,7 +112,7 @@ switch (command) {
       break;
     }
     for (const e of events) {
-      console.log(`[${e.timestamp}] ${e.agentId} ${e.type} (${e.source})`);
+      console.log(`[${formatKst(e.timestamp)}] ${e.agentId} ${e.type} (${e.source})`);
       if (e.type === "ASSISTANT_MESSAGE") {
         const text = (e.payload as { text?: string }).text ?? "";
         console.log(`  ${text.length > 200 ? text.slice(0, 200) + "..." : text}`);
@@ -129,7 +139,7 @@ switch (command) {
         waitingOn ? `Human 승인 대기 중인 질문=${waitingOn.id}` : null,
       ].filter(Boolean);
       console.log(parts.join(" "));
-      console.log(`  갱신: ${a.updatedAt}`);
+      console.log(`  갱신: ${formatKst(a.updatedAt)}`);
     }
     break;
   }
@@ -185,7 +195,7 @@ switch (command) {
     for (const r of records) {
       console.log(`[${r.id}] ${r.status} (${r.triggerType})`);
       console.log(`  결론: ${r.conclusion}`);
-      console.log(`  생성: ${r.createdAt}`);
+      console.log(`  생성: ${formatKst(r.createdAt)}`);
     }
     break;
   }
@@ -241,7 +251,7 @@ switch (command) {
     for (const r of records) {
       console.log(`[${r.id}] ${r.status} (${r.triggerType})`);
       console.log(`  결론: ${r.conclusion}`);
-      console.log(`  생성: ${r.createdAt}`);
+      console.log(`  생성: ${formatKst(r.createdAt)}`);
     }
     break;
   }
