@@ -15,4 +15,5 @@ architecture.md/mvp-scope.md 곳곳에 흩어져 있던 미해결 항목을 한 
 
 | 조건 | 내용 |
 |---|---|
-| Linux 테스트 환경 확보 시 | Linux 지원 검토(requirements.md §3 "Linux 지원은 향후 고려한다"). 설계 변경 필요성은 낮게 본다 — Node.js 크로스플랫폼 API를 쓰고 있고, 이미 지원 중인 Windows보다 오히려 Linux 쪽이 프로세스 시그널(`SIGTERM` 등) 처리에 더 native하다. 실질적으로는 새 설계보다 검증 작업에 가깝다 |
+| Windows 테스트 환경 확보 시 | **설계 가정 자체가 깨질 수 있는 리스크(2026-08-27 발견)**. `process-manager.ts:114`/`121`의 pause/resume/stop이 전부 `child.kill("SIGTERM")`에, `process-manager.ts:198`의 정상 종료 판별이 POSIX 표준 종료 코드 `143`(SIGTERM)에 의존한다. Windows는 POSIX 시그널이 없어 `.kill("SIGTERM")`이 사실상 강제 종료로 처리되고 종료 코드도 143이 아닐 수 있어, 이 메커니즘이 Windows에서 동일하게 동작한다는 보장이 없다. `architecture.md §8`의 "Node.js 런타임 이식성은 검증되어 있다"는 서술은 일반론일 뿐, 이 프로젝트를 실제 Windows에서 돌려본 적은 없다. requirements.md §3이 Windows를 macOS와 함께 "우선 지원" 대상으로 명시하고 있어 Linux보다 먼저 봐야 할 항목 |
+| Linux 테스트 환경 확보 시 | Linux 지원 검토(requirements.md §3 "Linux 지원은 향후 고려한다"). Node.js 크로스플랫폼 API를 쓰고 있고, 프로세스 시그널(`SIGTERM` 등) 처리는 오히려 Linux 쪽이 POSIX에 더 native하다 — 단, 위 Windows 항목과 같은 종류의 실측 확인 자체는 아직 안 됨. 실질적으로는 새 설계보다 검증 작업에 가깝다 |
