@@ -1,0 +1,46 @@
+# 개념: 거버넌스(Governance)와 이 프로젝트의 위치
+
+[comparison-native-multi-agent.md](comparison-native-multi-agent.md) 결론에서 이 프로젝트를 "네이티브 전송 계층 위/별개의 거버넌스 계층"이라고 정리했는데, "거버넌스"라는 용어 자체가 모호할 수 있어 별도로 풀어 정리한다. 마지막 절의 "SendMessage와 거버넌스를 조화시킨다면"은 아직 검증되지 않은 아이디어이며, 실제 검토는 이 저장소가 아니라 사용자의 프로젝트에서 Claude Code 세션과 직접 진행하기로 했다 — 이 문서는 그 검토를 시작할 때 참고할 배경 정리다.
+
+## 1. 거버넌스란
+
+일반적인 의미에서 거버넌스는 "누가, 언제, 어떤 절차를 거쳐, 어떤 근거로 결정을 내리는가"를 관리하는 체계다. 통신·행동 자체가 아니라 **그 통신·행동에 대한 통제 규칙과, 그 규칙이 지켜지는지 확인하는 절차**를 가리킨다. 소프트웨어에서 자주 쓰는 하위 개념:
+
+| 개념 | 질문 |
+|---|---|
+| 승인(approval) | 이 행동을 실행하기 전에 누가 허락해야 하는가? |
+| 신원 검증(identity/authN) | 이걸 요청한 게 정말 그 주체가 맞는가? |
+| 권한 제한(authZ, 최소 권한) | 이 역할은 애초에 무엇까지 할 수 있는가? |
+| 감사(audit) | 언제 무슨 일이 있었는지 나중에 확인할 수 있는가? |
+| 의사결정 기록(decision record) | 왜 그렇게 결정했는지 근거가 남아있는가? |
+
+이 프로젝트가 위 다섯 요소를 각각 어떻게 구현하는지는 이미 [comparison-native-multi-agent.md §2](comparison-native-multi-agent.md#2-항목별-비교)에 정리되어 있다.
+
+| 거버넌스 요소 | 이 프로젝트에서의 구현 |
+|---|---|
+| 승인 | `ask_agent`/`answer_question`이 `admin-cli`로 Human이 승인할 때까지 보류됨 |
+| 신원 검증 | `ORCHESTRATOR_AGENT_ID`로 `from_agent_id` 거짓 주장 탐지·거부 |
+| 최소 권한 | Scribe Agent는 `submit_decision_record` 도구 하나만 가짐 |
+| 감사 | Event Log에 모든 Hook/Q&A 이벤트가 시간순으로 기록 |
+| 의사결정 기록 | 거절 사유가 있으면 Decision Record 초안이 자동 생성되고 사람이 승인 |
+
+## 2. 왜 네이티브 `SendMessage`는 "거버넌스가 없다"고 하는가
+
+`SendMessage({ to, message })`는 이름만 알면 누구든 호출할 수 있고, 승인·신원 검증·감사 로그 없이 바로 상대 세션에 전달된다. 이건 결함이 아니라 **애초에 그런 걸 하려고 만든 도구가 아니기 때문**이다 — 메시지를 "전달"하는 데만 집중한 순수 전송 프리미티브다. [requirements.md §7](requirements.md#7-agent-간-통신) "Agent 간 직접 통신 금지" 원칙, [architecture.md §3](architecture.md#3-agent-간-통신-강제-7-대응)의 물리적 단일 통로 강제는 이 전제를 의도적으로 뒤집은 것이다.
+
+## 3. SendMessage와 거버넌스를 조화시킨다면
+
+떠오른 방향은 **`SendMessage`를 전송 수단으로 그대로 쓰되, `PreToolUse` Hook으로 그 호출을 가로채서 지금의 승인/신원검증/기록 파이프라인에 태우는 것**이다. 지금의 커스텀 `ask_agent` MCP 도구 대신 네이티브 `SendMessage`를 허용하고, 호출 직전에 Hook이 가로채 Question Eligibility Check → Human 승인 대기 → 승인되면 통과, 거절되면 차단하는 흐름을 상상해볼 수 있다. 이러면 전송 계층(MCP 서버)을 직접 구현·유지보수할 필요가 줄어든다.
+
+다만 트레이드오프가 있다. 지금 구조의 핵심 강점은 "Agent에게 통신 도구가 물리적으로 `ask_agent` 하나뿐이라 우회가 원천 불가능하다"는 **구조적 보장**([architecture.md §3](architecture.md#3-agent-간-통신-강제-7-대응))이다. `SendMessage`를 허용하고 Hook으로 가로채는 방식은 이 보장이 "Hook이 `SendMessage` 호출을 정말 예외 없이 가로챌 수 있는가"라는, 아직 확인되지 않은 전제에 의존하게 된다. 이게 성립하지 않으면 거버넌스가 "우회 불가능"에서 "우회하지 않기를 바라는 정책"으로 약해질 위험이 있다.
+
+## 4. 검토 대상 (다음 단계 — 사용자 프로젝트에서 Claude Code 세션과 직접 진행)
+
+이 저장소에서 실험하지 않고, 실제 사용 중인 프로젝트에서 Claude Code 세션과 논의하며 확인하기로 한 항목:
+
+- `PreToolUse` Hook이 teammate 간 `SendMessage` 호출을 실제로 관찰·차단할 수 있는가.
+- 가능하다면, 그 경로가 예외 없이(우회 불가능하게) 강제되는가 — 즉 Hook이 배선되지 않은 다른 진입점으로 `SendMessage`를 호출할 방법이 남아있지 않은가.
+- Hook이 호출을 막을 때 반환/거절 방식이 무엇인지, 그리고 그 대기 시간 동안 Human 승인을 끼워 넣는 것이 실제로 가능한지(이 프로젝트의 §4.1 "5분까지 타임아웃 없음" 같은 확인이 `SendMessage` + Hook 조합에도 똑같이 적용되는지는 별도 확인 필요 — [investigation-native-askuserquestion-timeout.md](investigation-native-askuserquestion-timeout.md)에서 본 것처럼 네이티브 쪽에는 이미 알려진 하드코딩 타임아웃 사례가 있다).
+- 이 방식으로 전환할 경우 커스텀 MCP 서버(`ask_agent`/`answer_question`)를 완전히 대체할지, 병행할지.
+
+이 항목들이 실제로 검증되기 전까지는 §3의 조화 방안은 **아이디어 단계**이며, 현재 구현(물리적 단일 통로)을 대체할 근거로 쓰지 않는다.
