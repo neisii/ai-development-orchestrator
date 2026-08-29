@@ -31,6 +31,7 @@ Human-in-the-loop orchestration system for coordinating multiple AI agents acros
 - [실 테스트 가이드 (testing-guide.md)](docs/testing-guide.md) — 직접 실행해서 확인하는 방법(자동 시나리오 지켜보기, `npm run demo`로 직접 개입해보기)
 - [조사: MCP 세션 지연 (investigation-mcp-session-delay.md)](docs/investigation-mcp-session-delay.md) — "원인 불명의 지연"으로 남아있던 문제를 단계별로 격리해 근본 원인(`ORCHESTRATOR_DB_PATH` 누락)을 찾고 고친 기록
 - [비교: 네이티브 멀티 에이전트 기능 (comparison-native-multi-agent.md)](docs/comparison-native-multi-agent.md) — Claude Code 네이티브 `Agent`/`SendMessage`/`ListAgents`와 이 프로젝트의 `ask_agent` MCP 게이트를 항목별로 대조하고, 왜 여전히 Orchestrator가 필요한지 정리한 기록
+- [조사: 네이티브 AskUserQuestion 60초 타임아웃 (investigation-native-askuserquestion-timeout.md)](docs/investigation-native-askuserquestion-timeout.md) — 실무에서 관찰된 타임아웃 로그의 원인(하드코딩된 AFK 자동진행)을 확인하고, 이 프로젝트의 승인 대기 방식과 구조적으로 대조한 기록
 - [실전 프로젝트 검증 (real-project-verification.md)](docs/real-project-verification.md) — 스크래치가 아닌 실제 사용자 프로젝트 두 개에 연결해서, Q&A 왕복/거절·재작성/Decision Intervention/Pause·Direct Instruction/Scribe 개입 제한/트리거 검증/History 검색까지 8개 시나리오를 실측 검증하고, 세 번째 프로젝트를 더해 3-Agent 확장까지 확인한 기록
 
 ## 현재 상태
