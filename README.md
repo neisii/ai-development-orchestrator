@@ -2,6 +2,10 @@
 
 Human-in-the-loop orchestration system for coordinating multiple AI agents across software projects.
 
+> **상태: 개발 중단(2026-09)**
+> SI 현장에서 AI 세션 사이의 요청을 사람이 손으로 옮겨 전하던 일을 자동화하려고 만들었습니다. Phase 1~3을 실제 프로젝트에 연결해 검증한 뒤, Claude Code에 세션 간 대화 기능(`SendMessage`·`ListAgents`)이 들어온 것을 알고 더 만들지 않았습니다.
+> 기본 기능과의 차이는 [비교 문서](docs/comparison-native-multi-agent.md)와 [거버넌스 계층](docs/concept-governance-layer.md)에 정리했습니다. 그 차이(단일 통로, 사람 승인, 기록)는 [harness-naroo](https://github.com/neisii/harness-naroo)의 규칙으로 이어졌습니다.
+
 여러 개의 대규모 프로젝트를 각각 독립적인 AI Agent가 담당하고, Human이 전체 개발 과정을 오케스트레이션하는 개발 파이프라인입니다.
 
 핵심 목표는 Human을 개발 과정에서 제거하는 것이 아니라, Human이 여러 AI Agent를 효율적으로 지휘하면서도 Agent의 구현 능력을 최대한 활용할 수 있도록 하는 것입니다.
